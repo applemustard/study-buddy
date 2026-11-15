@@ -43,7 +43,7 @@ STUDY BUDDY $version
 Turn your PDFs into quizzes, flashcards, notes and an exam study plan.
 
 ON WINDOWS (recommended)
-1. Right-click "Study Buddy (Windows).zip" and choose "Extract All". Put the folder
+1. Right-click the Study Buddy zip file and choose "Extract All". Put the folder
    somewhere you'll keep it, such as Documents. Don't run it from inside the zip.
 2. Open the folder and double-click "Study Buddy.exe".
    If Windows says "Windows protected your PC", click "More info", then "Run anyway".
@@ -84,6 +84,12 @@ try {
   }
 } finally { $archive.Dispose() }
 Remove-Item -Recurse -Force $stage
+
+# Same zip in download\ (committed), so the repo always offers the latest version at a fixed link:
+#   https://github.com/<user>/<repo>/raw/main/download/StudyBuddy-Windows.zip
+$download = Join-Path $root 'download'
+New-Item -ItemType Directory -Force $download | Out-Null
+Copy-Item $zip (Join-Path $download 'StudyBuddy-Windows.zip') -Force
 $oldZip = Join-Path $out 'Study Buddy (app folder).zip'
 if (Test-Path $oldZip) { Remove-Item $oldZip }
 
