@@ -1,0 +1,10 @@
+# Built or local-only files
+export/
+.claude/
+launcher/obj/
+/Study Buddy.exe
+/Study Buddy.exe.old
+launcher.log
+launcher-settings.json
+app.new/
+app.old/
