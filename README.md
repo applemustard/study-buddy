@@ -69,7 +69,8 @@ An internet connection is needed (pdf.js, KaTeX, fonts and the Groq API load fro
 
 - Everything (PDF text, cards, results, your key) is saved in this browser's IndexedDB. Use **Settings → Export backup** to move it to another computer. The export leaves out your key.
 - Your key is sent only to `api.groq.com`.
-- If you hit Groq rate limits on the free tier, lower **Material sent per request** in Settings. Scanned PDFs without selectable text need OCR first, or use "Paste notes".
+- Groq's free plan has a daily allowance per model. When it runs out, Study Buddy says which limit was hit and when it comes back, pauses the AI until then (shown in the sidebar), and offers a one-click switch to another model, which has its own allowance. **Settings → AI usage** shows what this computer used in the last 24 hours, and **Check now** tests whether the AI is answering.
+- To use less, make shorter quizzes or lower **Material sent per request** in Settings. Scanned PDFs without selectable text need OCR first, or use "Paste notes".
 - Default model: `llama-3.3-70b-versatile`. Any chat model on your Groq account can be picked in Settings.
 
 ## Files

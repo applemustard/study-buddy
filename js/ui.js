@@ -23,6 +23,7 @@ function toast(msg, type = 'info', ms = 4200) {
 
 function showError(err) {
   console.error(err);
+  if (err && err.limit && typeof openLimitDialog === 'function') { openLimitDialog(err.limit); return; }
   toast(err && err.message ? err.message : String(err), 'error', 7000);
 }
 

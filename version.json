@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.5",
+    "version":  "1.0.6",
     "launcher":  "1.0.0",
     "date":  "2026-11-16",
-    "notes":  "Answers that are code now show as highlighted code, one statement per line, in quizzes and results."
+    "notes":  "Study Buddy now tells you when your Groq allowance runs out, when it comes back, and offers to switch to another model. See Settings, AI usage."
 }

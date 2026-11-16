@@ -6,6 +6,10 @@ function hasKey() { return !!(S.settings.apiKey || '').trim(); }
 
 async function groqChat(messages, { json = true, temperature = 0.5, maxTokens = 4096 } = {}) {
   if (!hasKey()) throw new Error('Add your Groq API key in Settings to use the AI features.');
+  const model = S.settings.model || DEFAULT_MODEL;
+  // Groq already said this model is out of allowance: don't send a request that would fail.
+  const blk = activeBlock(model);
+  if (blk) throw new GroqLimitError({ ...blk, model, waitSec: (blk.until - Date.now()) / 1000 });
   let lastErr = '';
   for (let attempt = 0; attempt < 4; attempt++) {
     let res;
@@ -14,7 +18,7 @@ async function groqChat(messages, { json = true, temperature = 0.5, maxTokens = 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.settings.apiKey.trim() },
         body: JSON.stringify({
-          model: S.settings.model || DEFAULT_MODEL,
+          model,
           messages,
           temperature,
           max_tokens: maxTokens,
@@ -27,6 +31,17 @@ async function groqChat(messages, { json = true, temperature = 0.5, maxTokens = 
     const data = await res.json().catch(() => ({}));
     if (res.status === 429 || res.status >= 500) {
       lastErr = data?.error?.message || `HTTP ${res.status}`;
+      const info = res.status === 429 ? parseGroqLimit(lastErr) : null;
+      if (info) {
+        info.model = model;
+        // One request bigger than the per-minute allowance can never succeed by waiting.
+        if (info.per === 'minute' && info.unit === 'tokens' && info.requested > info.limit)
+          throw new Error('That request was too large for your Groq plan. Set "Material sent per request" to Small in Settings, or make fewer questions at a time.');
+        recordLimit(model, info);
+        if (info.per === 'day' || info.waitSec > 60 || attempt === 3) throw new GroqLimitError(info);
+        await sleep(Math.min(60, (info.waitSec || 2 ** attempt * 3) + 0.5) * 1000);
+        continue;
+      }
       const wait = parseFloat(res.headers.get('retry-after')) || 2 ** attempt * 3;
       await sleep(Math.min(wait, 30) * 1000);
       continue;
@@ -41,6 +56,7 @@ async function groqChat(messages, { json = true, temperature = 0.5, maxTokens = 
       if (json && /json/i.test(msg) && attempt < 2) { lastErr = msg; continue; }
       throw new Error('Groq: ' + msg);
     }
+    recordUsage(model, data.usage?.total_tokens);
     const text = data.choices?.[0]?.message?.content || '';
     if (!json) return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     try { return parseJSONLoose(text); }

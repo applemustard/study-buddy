@@ -30,6 +30,8 @@ function renderSettings() {
       </label>
     </section>
 
+    ${usageSectionHTML()}
+
     <section class="block">
       <div class="block-head"><h2>Flashcard keys</h2></div>
       <div class="keyrows">
@@ -71,7 +73,7 @@ function mountSettings() {
       save(); toast(`Key saved. ${models.length} models available.`, 'good'); render(); updateKeyStatus();
     } catch (err) { showError(err); }
   });
-  $('#modelSel').addEventListener('change', e => { S.settings.model = e.target.value; save(); toast('Model set to ' + e.target.value, 'good', 2000); });
+  $('#modelSel').addEventListener('change', e => { S.settings.model = e.target.value; save(); toast('Model set to ' + e.target.value, 'good', 2000); render(); });
   $('#ctxSel').addEventListener('change', e => { S.settings.contextChars = +e.target.value; save(); });
   $('#importFile').addEventListener('change', importData);
 }

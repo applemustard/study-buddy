@@ -73,6 +73,7 @@ const DEFAULT_STATE = {
   cards: [],      // {id, subjectId, front, back, chapter, kind, status:'new'|'got'|'again', reviews, createdAt, lastReviewed}
   exams: [],      // {id, subjectId, title, date, createdAt, plan:{startDate, rationale, sessions:[...], builtAt}}
   notes: [],      // {id, subjectId, title, style, chapters, input, markdown, createdAt, updatedAt, sharedBy?}
+  usage: {},      // {[model]: {log: [[time, tokens]], limits: {TPD, RPD, ...}, block?: {kind, per, limit, used, until}}}
 };
 
 let S = structuredClone(DEFAULT_STATE);

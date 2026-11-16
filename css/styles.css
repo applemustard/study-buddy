@@ -112,6 +112,8 @@ kbd.big { font-size: 1rem; min-width: 3.2em; }
 .side-foot a { color: var(--ink-2); }
 .ok-dot, .off-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--got); }
 .off-dot { background: var(--again); }
+.warn-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--mid); }
+#keyStatus a:has(.warn-dot) { color: var(--ink); text-decoration: none; }
 
 .main { padding: 36px 48px 80px; max-width: 1080px; width: 100%; outline: none; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
@@ -684,3 +686,15 @@ label.link { display: inline; font-weight: 700; }
   .quiz-top { flex-wrap: wrap; }
   .ex-code code { font-size: .82rem; }
 }
+
+/* ---------- AI usage and limits ---------- */
+.limit-box p { margin: 0 0 10px; }
+.small-head { font-size: .95rem; margin: 18px 0 6px; }
+.tips { margin: 0 0 12px; padding-left: 20px; }
+.tips li { margin-bottom: 4px; }
+.meter { height: 8px; border-radius: 4px; background: var(--sunk); border: 1px solid var(--rule); overflow: hidden; margin: 4px 0 8px; }
+.meter > span { display: block; height: 100%; border-radius: 4px; background: var(--blue); }
+.limit-box .meter > span, .meter.high > span { background: var(--again); }
+.usage-row { padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.usage-row:last-child { border-bottom: 0; }
+.usage-row p { margin: 4px 0 0; }

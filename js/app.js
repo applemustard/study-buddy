@@ -40,9 +40,12 @@ function render() {
 
 function updateKeyStatus() {
   const el = $('#keyStatus');
-  el.innerHTML = hasKey()
-    ? `<span class="ok-dot"></span>AI on: ${esc(S.settings.model)}`
-    : `<a href="#/settings"><span class="off-dot"></span>AI off: add a Groq key</a>`;
+  const blk = hasKey() && activeBlock(S.settings.model);
+  el.innerHTML = !hasKey()
+    ? `<a href="#/settings"><span class="off-dot"></span>AI off: add a Groq key</a>`
+    : blk
+      ? `<a href="#/settings" title="Open Settings to switch model"><span class="warn-dot"></span>AI paused: ${blk.per === 'day' ? 'daily' : ''} limit reached for ${esc(S.settings.model)}. Back in ${fmtWait(blk.until - Date.now())}.</a>`
+      : `<span class="ok-dot"></span>AI on: ${esc(S.settings.model)}`;
 }
 
 document.addEventListener('keydown', e => {
@@ -78,6 +81,8 @@ window.addEventListener('hashchange', render);
   // Keep the sidebar status in sync after settings change.
   const origSave = save;
   window.save = save = function () { origSave(); updateKeyStatus(); };
+  // The "AI paused" countdown in the sidebar, and clearing it when the pause ends.
+  setInterval(updateKeyStatus, 30000);
   checkForUpdate(false);
 })();
 
