@@ -38,6 +38,10 @@ An internet connection is needed (pdf.js, KaTeX, fonts and the Groq API load fro
   - Answers that are code show as highlighted code, laid out one statement per line, and `code` inside normal text is shown in code font.
   - Figures from the PDF are cropped from their page and embedded as pictures. You can also add your own picture to any question (upload, paste a screenshot, or crop a PDF page).
   - Questions stay on your course: theory questions only ask about what the PDF says, and the AI must quote the passage each question is based on. Questions whose quote isn't in the PDF are dropped. The results page shows that quote under each missed question.
+  - Every question is either **theory** or an **exercise**, with strict rules for each. The app also decides this itself: anything with code to trace, a formula or a calculation counts as an exercise.
+    - Theory comes from the course: the correct answer must be in the PDF, not only the quote.
+    - Exercises are made up by the AI and solved again from scratch, without seeing the answer key or the course. If that disagrees, a third solve decides: the key is corrected when the two fresh solves agree, and the question is left out when no two agree.
+  - **Is this answer wrong?** on a missed question has the AI solve it again and lets you set the right answer; every attempt at that quiz is re-marked.
   - Code and maths exercises get new versions (new code, new numbers) using only what the course teaches, instead of copying the PDF's examples. A new quiz doesn't repeat questions from earlier quizzes on the same subject.
   - **More like this** on a missed question (or **Practice what I missed**) makes a practice quiz that tests the same idea in new ways.
   - Optional timer: pick it on the start screen. It warns you at 1 minute and submits by itself when time runs out. Results show the time taken.

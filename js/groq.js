@@ -179,10 +179,12 @@ async function aiGenerateQuiz(subject, { count = 10, difficulty = 'medium', chap
 
   const past = pastQuestions(subject.id);
   const first = await requestQuestions(count, { difficulty, names, context, past });
-  const { questions, offCourse } = await topUp(first, count, { difficulty, names, context, past });
+  const topped = await topUp(first, count, { difficulty, names, context, past });
+  const offCourse = topped.offCourse;
+  const { questions, unconfirmed } = await verifyAnswers(topped.questions);
   if (!questions.length) throw new Error(offCourse ? 'The AI only wrote questions that are not in your course material, so they were dropped. Try again, or pick other chapters.' : 'The AI did not return usable questions. Try again.');
   await attachFigures(subject, questions);
-  return { title: String(first.title || `${subject.name} quiz`).slice(0, 90), questions, offCourse };
+  return { title: String(first.title || `${subject.name} quiz`).slice(0, 90), questions, offCourse, unconfirmed };
 }
 
 /* Questions about the PDF's structure, off the course, or repeating earlier quizzes are dropped:
@@ -212,7 +214,7 @@ async function aiSimilarQuiz(subject, sources, { count = 5, difficulty = 'medium
   if (!context.trim()) throw new Error('This subject has no readable material yet. Upload a PDF first.');
   const opts = { difficulty, names: names.length ? names : all.map(c => c.name), context, past: pastQuestions(subject.id), similarTo: sources };
   const first = await requestQuestions(count, opts);
-  const { questions } = await topUp(first, count, opts);
+  const { questions } = await verifyAnswers((await topUp(first, count, opts)).questions);
   if (!questions.length) throw new Error('The AI did not return usable questions that are in your course material. Try again.');
   await attachFigures(subject, questions);
   // The AI's title names the idea ("Assignment expressions"); the question text is the fallback.
@@ -222,11 +224,32 @@ async function aiSimilarQuiz(subject, sources, { count = 5, difficulty = 'medium
 }
 
 /* Theory stays exactly on the course; only exercises (code, maths, problems) get new versions. */
-const TWO_KINDS = `- TWO KINDS OF QUESTIONS. Set "type" on each one:
-  "theory" (definitions, concepts, facts, comparisons, how and why): ask only about what the material states, in its own terms. The correct answer must be stated in the material. Do not invent new situations or examples for theory.
-  "exercise" (tracing or writing code, calculations, maths problems, worked examples, reading data): write NEW versions of the kinds of exercise the material teaches: your own code with different names, values and structure, or new numbers ("predict the output", "which line has the bug", "what changes if…", "solve for…"). Use only the constructs, formulas and methods the material shows. Never copy its examples or numbers unchanged.
+const TWO_KINDS = `- STRICT RULE: THEORY OR EXERCISE. Decide the type of every question FIRST and write it in "type" before anything else. The two types follow different rules and must never be mixed.
+  How to decide: it is an "exercise" if answering it means working something out: running or tracing code, finding a bug, a calculation, solving an equation, applying a formula to numbers, reading values from a table or chart. Everything else (definitions, concepts, facts, rules, comparisons, how and why) is "theory".
+  "theory": TAKE IT FROM THE COURSE. Ask only about what the material states, and the correct option must say what the material says, using the material's own words and terms. Add nothing the material doesn't say. Never invent new situations, examples or code for a theory question.
+  "exercise": MAKE YOUR OWN, THEN SOLVE IT YOURSELF. Write a new version of a kind of exercise the material shows (predict the output, which line has the bug, what changes if…, solve for…), with your own code (different names, values and structure) or new numbers, using only the constructs, formulas and methods the material teaches. Then forget the material's answer and solve YOUR version from scratch, step by step, in "working". The answer comes only from that working.
   Write exercises when the material teaches code, maths or problem solving. If it doesn't, write only theory questions.
+  NEVER CARRY OVER THE MATERIAL'S ANSWER. When your exercise is a changed version of an example in the material, its answer is different: work it out again from your own code or numbers. Example: the material shows "2 + 3 * 2" giving 8; your version "5 + 3 * 2" gives 5 + 6 = 11, not 8. The explanation must use your values too.
 - SOURCE: for every question, "source" is a short exact quote (8 to 25 words, copied word for word) from the material that the question is based on, and "page" is the number of the [p.N] marker it is under. For an exercise, quote the part that teaches the rule or technique it practises. A question you cannot back with a quote from the material must not be written.`;
+
+/* Exercises are decided by the app too, not only by the AI's label: anything with code to trace, a formula,
+   code answers or a "calculate / what does it print" question is an exercise, so it always gets re-solved. */
+function isExercise(item, aiType) {
+  if (aiType === 'exercise') return true;
+  if (item.exhibit && ['code', 'formula'].includes(item.exhibit.type)) return true;
+  if (optionsAreCode(item)) return true;
+  return /\b(print(s|ed)?|output|evaluates?|calculate|compute|solve|simplify|how many times|what (is the )?value|result of|returns?)\b/i.test(item.question)
+    && (/\d/.test(item.question) || !!item.exhibit);
+}
+
+const STOP_WORDS = new Set('the and for are was were that this with from into its not but can has have had any all one only also than then when which what who whom why how does did will would should could may might must each other such been being more most some very'.split(' '));
+/* For theory: the correct answer has to come from the course, so at least half of its key words must be in the material. */
+function answerInMaterial(item, materialNorm) {
+  const words = normQ(item.options[item.answer]).split(' ').filter(w => (w.length >= 3 && !STOP_WORDS.has(w)) || /^\d+$/.test(w));
+  if (!words.length) return true; // "Yes", "No", "A and B"…: nothing to check
+  const found = words.filter(w => materialNorm.includes(' ' + w + ' ') || (w.length > 4 && materialNorm.includes(' ' + w.replace(/(es|s)$/, ''))));
+  return found.length >= Math.ceil(words.length / 2);
+}
 
 /* Share of a quote's 3-word runs found in the material (1 = word for word). */
 function quoteCoverage(quote, materialNorm) {
@@ -273,7 +296,7 @@ ${TWO_KINDS}
 - Wrong options must be plausible.
 - CODE IN OPTIONS: when the options are code (for example "which fragment is correct"), add "optionLanguage": "java" (the language) to the question, and write each option as real, complete code laid out the normal way: one statement per line with "\\n" line breaks and 4-space indents, never squashed onto one line. A short piece of code inside an ordinary sentence goes in \`backticks\`.
 - "chapter" must be copied exactly from the list above.
-- "answer" is the 0-based index of the correct option.
+- "answer" is the 0-based index of the correct option. Before setting it, fill in "working": solve the question yourself step by step (trace code line by line with each variable's value, do every calculation explicitly, check operator precedence), then make sure the option at "answer" matches your result exactly, and that the explanation agrees with it.
 - SHOW WHAT YOU ASK ABOUT: the student only sees the question, so every question must be answerable from what is shown. When a question is about code, a formula, a table of values or data that would be charted, put that material in the separate "exhibit" field as a JSON object (otherwise leave "exhibit" out):
   {"type": "code", "language": "java", "content": "the complete code, with line breaks written as \\n"}
   {"type": "table", "title": "...", "headers": ["...", "..."], "rows": [["...", "..."]]}
@@ -283,14 +306,14 @@ ${TWO_KINDS}
 - The material is split into pages marked [p.N]. When a question is about a figure, diagram, chart, picture or screenshot printed in the material (look for words like Figure, Fig., Diagram, Chart, Graph, Listing), set "figurePage" to the page number it is on, so the app can show the student that page. Otherwise leave "figurePage" out.
 ${avoid.length ? `- These questions were rejected, for asking about the document itself or about things the material does not say. Do not write anything like them:\n${avoid.map(q => '  - ' + q).join('\n')}\n` : ''}${existing.length ? `- Do not repeat these questions:\n${existing.map(q => '  - ' + q).join('\n')}\n` : ''}${past.length ? `- Earlier quizzes on this subject already asked the questions below. Do not reuse any of them, their code or their numbers. An idea may come back only as a clearly different question (new code, values or scenario):\n${past.map(q => '  - ' + pastLine(q)).join('\n')}\n` : ''}
 ${MATH_JSON}
-Return: {"title": "short descriptive quiz title", "questions": [{"type": "theory|exercise", "question": "the sentence the student reads", "exhibit": {"type": "code", "language": "...", "content": "first line\\nsecond line"}, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right, using the material's explanation", "source": "exact words copied from the material", "page": 3}]}
+Return: {"title": "short descriptive quiz title", "questions": [{"type": "theory|exercise", "question": "the sentence the student reads", "exhibit": {"type": "code", "language": "...", "content": "first line\\nsecond line"}, "options": ["...","...","...","..."], "working": "short step-by-step solution", "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right, using the material's explanation", "source": "exact words copied from the material", "page": 3}]}
 (The exhibit above only shows the format. Leave "exhibit" out of questions that don't need one.)
 
 STUDY MATERIAL:
 ${context}`;
 
   const out = await groqChat([{ role: 'system', content: SYS_TEACHER }, { role: 'user', content: prompt }],
-    { temperature: 0.6, maxTokens: Math.min(8000, 500 + count * 430) });
+    { temperature: 0.6, maxTokens: Math.min(8000, 500 + count * 520) });
 
   const rejected = [], repeats = [];
   let offCourse = 0;
@@ -325,7 +348,9 @@ ${context}`;
     if (quoteCoverage(quote, materialNorm) < 0.5) { rejected.push(item.question); offCourse++; return null; }
     const page = parseInt(q.page, 10);
     item.source = { quote, ...(pages.has(page) ? { page } : {}) };
-    item.qtype = q.type === 'exercise' ? 'exercise' : 'theory';
+    item.qtype = isExercise(item, q.type) ? 'exercise' : 'theory';
+    // Theory: the right answer itself must come from the course, not only the quote.
+    if (item.qtype === 'theory' && !answerInMaterial(item, materialNorm)) { rejected.push(item.question); offCourse++; return null; }
     if (pastKeys.has(questionKey(item))) { repeats.push(item); return null; }
     pastKeys.add(questionKey(item));
     const fp = parseInt(q.figurePage, 10);
@@ -333,6 +358,74 @@ ${context}`;
     return item;
   }).filter(Boolean);
   return { title: out.title, questions, rejected, repeats, offCourse };
+}
+
+/* ---------- answer checking ---------- */
+
+/* Solves questions independently (without seeing the answer key). Returns [{answer, working}] in order;
+   answer is the option index, -1 if no single option is right, or null if the AI gave nothing usable. */
+async function aiSolve(items, { reshuffle = false } = {}) {
+  // A second opinion sees the options in a new order, so it is a fresh attempt rather than a repeat.
+  const perms = items.map(q => reshuffle ? shuffle(q.options.map((_, i) => i)) : q.options.map((_, i) => i));
+  const shown = items.map((q, k) => ({ ...q, options: perms[k].map(i => q.options[i]) }));
+  const results = await solveShown(shown);
+  return results.map((r, k) => ({ ...r, answer: r.answer === null || r.answer < 0 ? r.answer : perms[k][r.answer] }));
+}
+
+async function solveShown(items) {
+  const prompt = `You are checking the answer key of a quiz. Solve each question yourself, independently, without assuming any option is right.
+- Trace code line by line, writing down each variable's value. Do every calculation explicitly and check operator precedence and integer division.
+- Work only from the code and numbers exactly as written in the question. They may look like a familiar textbook example with different values: never use a remembered answer.
+- For a theory question, use the course passage given with it.
+- "answer" is the 0-based index of the option that matches your result. Use -1 if no option is correct or more than one is.
+- Keep "working" short: the key steps and the result.
+${MATH_JSON}
+Return: {"answers": [{"n": 1, "working": "key steps and result", "answer": 0}]}
+
+QUESTIONS:
+${items.map((q, k) => {
+    const ex = q.exhibit ? exhibitText({ exhibit: q.exhibit }) : '';
+    const passage = q.qtype !== 'exercise' && q.source?.quote ? `\nCourse passage: "${q.source.quote}"` : '';
+    return `${k + 1}. ${q.question}${ex ? `\n${ex}` : ''}${passage}\n${q.options.map((o, i) => `   [${i}] ${o.replace(/\n/g, '\n       ')}`).join('\n')}`;
+  }).join('\n\n')}`;
+  const out = await groqChat([{ role: 'system', content: 'You are a careful examiner who double-checks quiz answers. You always answer with a single JSON object and nothing else.' }, { role: 'user', content: prompt }],
+    { temperature: 0, maxTokens: Math.min(8000, 300 + items.length * 450) });
+  const byN = new Map((Array.isArray(out.answers) ? out.answers : []).map(a => [parseInt(a && a.n, 10), a]));
+  return items.map((q, k) => {
+    const a = byN.get(k + 1) || (Array.isArray(out.answers) && out.answers.length === items.length ? out.answers[k] : null);
+    const n = a ? parseInt(a.answer, 10) : NaN;
+    return { answer: Number.isInteger(n) && n >= -1 && n < q.options.length ? n : null, working: String(a?.working || '').slice(0, 1200) };
+  });
+}
+
+
+/* Every exercise is solved again independently (no answer key, no course text). When that solve disagrees,
+   it is solved a third time with the options reordered:
+   - the two fresh solves agree → the answer key is corrected to their answer, with their working as the explanation;
+   - the third solve agrees with the original → kept as it was;
+   - no two agree → dropped. If the check itself fails (network, limits), the questions are kept. */
+async function verifyAnswers(questions) {
+  const toCheck = questions.filter(q => q.qtype === 'exercise' && !q.figurePage);
+  if (!toCheck.length) return { questions, unconfirmed: 0, corrected: 0 };
+  let first;
+  try { first = await aiSolve(toCheck); }
+  catch (e) { console.warn('Answer check failed; keeping the questions', e); return { questions, unconfirmed: 0, corrected: 0 }; }
+  const disputed = toCheck.map((q, k) => ({ q, r: first[k] })).filter(({ q, r }) => r.answer !== null && r.answer !== q.answer);
+  if (!disputed.length) return { questions, unconfirmed: 0, corrected: 0 };
+  let second = null;
+  try { second = await aiSolve(disputed.map(d => d.q), { reshuffle: true }); }
+  catch (e) { console.warn('Second answer check failed', e); }
+  const drop = new Set();
+  let corrected = 0;
+  disputed.forEach(({ q, r }, k) => {
+    const s = second && second[k];
+    if (s && r.answer >= 0 && s.answer === r.answer) {
+      q.answer = r.answer;
+      q.explanation = (s.working || r.working || '').trim();
+      corrected++;
+    } else if (!(s && s.answer === q.answer)) drop.add(q);
+  });
+  return { questions: questions.filter(q => !drop.has(q)), unconfirmed: drop.size, corrected };
 }
 
 /* Turns "figurePage" into an embedded JPEG of that page's picture (needs the original PDF file). */

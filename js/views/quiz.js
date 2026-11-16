@@ -238,7 +238,10 @@ function renderResult(qid, aid) {
           <div class="ans right">Correct: ${optionHTML(qq, qq.options[qq.answer])}</div>
           ${qq.explanation ? `<p class="muted">${inlineCode(qq.explanation)}</p>` : ''}
           ${qq.source && qq.source.quote ? `<blockquote class="course-quote"><span class="small">From your course${qq.source.page ? `, page ${qq.source.page}` : ''}</span>“${esc(qq.source.quote)}”</blockquote>` : ''}
-          <button class="btn small" data-act="moreLike" data-q="${q.id}" data-i="${i}">More like this</button>
+          <div class="row gap wrap">
+            <button class="btn small" data-act="moreLike" data-q="${q.id}" data-i="${i}">More like this</button>
+            <button class="btn small ghost" data-act="checkAnswer" data-q="${q.id}" data-i="${i}" title="Have the AI solve it again, or fix the answer yourself">Is this answer wrong?</button>
+          </div>
         </li>`).join('')}
       </ol>
     </section>` : `<p class="note good">You answered every question correctly.</p>`}`;
@@ -310,6 +313,56 @@ ACT.practiceMissed = el => {
   const { q, a } = getAttempt(el);
   const missed = q.questions.filter((qq, i) => a.answers[i] !== qq.answer);
   if (missed.length) makePracticeQuiz(el, q, missed.slice(0, 15), clamp(missed.length * 2, 5, 20));
+};
+
+/* ---------- fixing a wrong answer key ---------- */
+
+/* Opens a dialog that re-solves the question with the AI and lets the student set the right answer. */
+ACT.checkAnswer = el => {
+  const q = quizById(el.dataset.q), i = +el.dataset.i, qq = q && q.questions[i];
+  if (!qq) return;
+  const optRow = (o, k) => `
+    <li class="fix-opt ${k === qq.answer ? 'cur' : ''}">
+      <div class="grow">${optionHTML(qq, o)}</div>
+      ${k === qq.answer ? '<span class="muted small">Marked correct now</span>' : `<button class="btn small" data-act="setAnswer" data-q="${q.id}" data-i="${i}" data-k="${k}">This one is correct</button>`}
+    </li>`;
+  const { el: m } = openModal('Check this answer', `
+    <p class="mq">${inlineCode(qq.question)}</p>
+    ${exhibitsHTML(qq, { quizId: q.id, index: i, compact: true })}
+    <div id="solveBox">${hasKey() ? '<p class="progress-line"><span class="spin"></span>The AI is solving it again from scratch…</p>' : '<p class="muted">Add your Groq API key in Settings to have the AI re-solve it.</p>'}</div>
+    <h3 class="small-head">The right answer is…</h3>
+    <ul class="fix-opts">${qq.options.map(optRow).join('')}</ul>
+    <p class="muted small">Changing the answer re-marks every attempt at this quiz, so your scores update.</p>`, { wide: true });
+  if (!hasKey()) return;
+  aiSolve([qq]).then(([r]) => {
+    const box = $('#solveBox', m);
+    if (!box || !box.isConnected) return;
+    const working = r.working ? `<p class="working">${inlineCode(r.working)}</p>` : '';
+    if (r.answer === qq.answer) box.innerHTML = `<p class="note good">The AI solved it again and agrees with the answer key: <b>${optionHTML(qq, qq.options[qq.answer])}</b></p>${working}`;
+    else if (r.answer >= 0) box.innerHTML = `
+      <p class="note bad">The AI solved it again and got a different answer: <b>${optionHTML(qq, qq.options[r.answer])}</b></p>${working}
+      <button class="btn primary" data-act="setAnswer" data-q="${q.id}" data-i="${i}" data-k="${r.answer}" data-working="1">Use this answer</button>`;
+    else box.innerHTML = `<p class="note">The AI solved it again and none of the options match its result. Pick the right one yourself below, if there is one.</p>${working}`;
+    if (r.answer >= 0 && r.answer !== qq.answer) box.dataset.working = r.working;
+    renderMath(box);
+  }).catch(e => { const box = $('#solveBox', m); if (box) box.innerHTML = `<p class="muted">Could not check it: ${esc(e.message)}</p>`; });
+};
+
+ACT.setAnswer = el => {
+  const q = quizById(el.dataset.q), i = +el.dataset.i, k = +el.dataset.k, qq = q && q.questions[i];
+  if (!qq || !(k >= 0 && k < qq.options.length)) return;
+  const working = el.dataset.working ? $('#solveBox')?.dataset.working : '';
+  qq.answer = k;
+  qq.explanation = working ? `Corrected after a second check: ${working}` : 'You corrected this answer.';
+  qq.corrected = true;
+  // Re-mark every attempt; the AI summary is redone since it was based on the old marking.
+  for (const a of q.attempts || []) {
+    const correct = q.questions.filter((x, j) => a.answers[j] === x.answer).length;
+    if (correct !== a.correct) { a.correct = correct; a.score = Math.round(correct / q.questions.length * 100); delete a.review; }
+  }
+  save(); closeModal();
+  toast('Answer corrected and the quiz re-marked.', 'good');
+  render();
 };
 
 async function mountResult(qid, aid) {

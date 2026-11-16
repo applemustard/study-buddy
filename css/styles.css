@@ -170,6 +170,8 @@ kbd.big { font-size: 1rem; min-width: 3.2em; }
 .small-empty { padding: 28px 18px; }
 .note { padding: 12px 16px; border-left: 4px solid var(--blue); background: var(--blue-soft); border-radius: 0 8px 8px 0; margin-bottom: 28px; }
 .note.good { border-color: var(--got); background: var(--got-soft); }
+.note.bad { border-color: var(--again); background: var(--again-soft); }
+#solveBox .note { margin-bottom: 10px; }
 .setup { display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 18px 20px; margin-bottom: 32px; background: var(--hi-soft); border-radius: var(--radius); }
 .setup p { margin: 0; max-width: 62ch; }
 
@@ -702,3 +704,10 @@ label.link { display: inline; font-weight: 700; }
 /* The course text a question is based on, under its explanation on the results page. */
 .course-quote { margin: 6px 0 8px; padding: 8px 12px; border-left: 3px solid var(--blue); background: var(--sunk); border-radius: 0 6px 6px 0; color: var(--ink-2); font-style: italic; }
 .course-quote span { display: block; font-style: normal; font-weight: 700; color: var(--ink-3); margin-bottom: 2px; }
+
+/* Fixing a wrong answer key */
+.fix-opts { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fix-opt { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; }
+.fix-opt.cur { border-color: var(--got); }
+.fix-opt .grow { min-width: 0; flex: 1; }
+.working { white-space: pre-wrap; font-size: .9rem; color: var(--ink-2); background: var(--sunk); padding: 8px 12px; border-radius: 6px; }

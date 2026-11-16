@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.8",
+    "version":  "1.0.9",
     "launcher":  "1.0.0",
     "date":  "2026-11-16",
-    "notes":  "Quizzes now stay on your course: theory questions only ask what your PDF says, and code and maths exercises get new versions. Results show the course passage each question came from."
+    "notes":  "Quiz answers are double-checked: theory comes from your course, and code and maths exercises are solved again from scratch. Missed questions have Is this answer wrong? to fix the answer and re-mark the quiz."
 }

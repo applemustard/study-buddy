@@ -311,7 +311,7 @@ function openQuizDialog(s, { chapters = null, kind = 'quiz', count = 10, onDone 
       const quiz = { id: uid(), subjectId: s.id, title: out.title, kind, chapters: picked, createdAt: Date.now(), questions: out.questions, attempts: [], timeLimit: +fd.get('timer') || 0 };
       S.quizzes.push(quiz); save(); closeModal();
       const asked = +fd.get('count');
-      if (out.questions.length < asked) toast(`Made ${out.questions.length} of ${asked} questions.${out.offCourse ? ' Questions about things that aren\'t in your course material were left out.' : ''}`, 'info', 7000);
+      if (out.questions.length < asked) toast(`Made ${out.questions.length} of ${asked} questions.${out.offCourse ? ' Questions about things that aren\'t in your course material were left out.' : ''}${out.unconfirmed ? ` ${out.unconfirmed} question${out.unconfirmed > 1 ? 's were' : ' was'} left out because a second check got a different answer.` : ''}`, 'info', 8000);
       onDone && onDone(quiz);
       location.hash = '#/quiz/' + quiz.id;
     } catch (err) { showError(err); }
