@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.6",
+    "version":  "1.0.7",
     "launcher":  "1.0.0",
     "date":  "2026-11-16",
-    "notes":  "Study Buddy now tells you when your Groq allowance runs out, when it comes back, and offers to switch to another model. See Settings, AI usage."
+    "notes":  "Fixes quizzes not being created in version 1.0.6."
 }

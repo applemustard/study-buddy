@@ -76,13 +76,13 @@ function fmtWait(ms) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 const fmtClockTime = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const fmtNum = n => Number(n).toLocaleString();
+const fmtCount = n => Number(n).toLocaleString();
 
 function limitText(info) {
   const wait = info.waitSec != null ? fmtWait(info.waitSec * 1000) : null;
   const label = LIMIT_LABELS[info.kind] || `${info.unit} per ${info.per}`;
-  if (info.per === 'day') return `You've used today's Groq allowance for ${info.model} (${fmtNum(info.limit)} ${label}).${wait ? ` It comes back in ${wait}.` : ''}`;
-  return `Groq's limit of ${fmtNum(info.limit)} ${label} for ${info.model} is used up.${wait ? ` Try again in ${wait}.` : ''}`;
+  if (info.per === 'day') return `You've used today's Groq allowance for ${info.model} (${fmtCount(info.limit)} ${label}).${wait ? ` It comes back in ${wait}.` : ''}`;
+  return `Groq's limit of ${fmtCount(info.limit)} ${label} for ${info.model} is used up.${wait ? ` Try again in ${wait}.` : ''}`;
 }
 
 /* Other models to switch to, best first. Each Groq model has its own separate allowance. */
@@ -105,7 +105,7 @@ function openLimitDialog(info) {
         <div class="meter" role="img" aria-label="${pct}% of the allowance used">
           <span style="width:${pct}%"></span>
         </div>
-        <p class="muted small">${fmtNum(info.used)} of ${fmtNum(info.limit)} ${esc(LIMIT_LABELS[info.kind] || '')} used${info.requested ? `, and this request needed ${fmtNum(info.requested)} more` : ''}.</p>` : ''}
+        <p class="muted small">${fmtCount(info.used)} of ${fmtCount(info.limit)} ${esc(LIMIT_LABELS[info.kind] || '')} used${info.requested ? `, and this request needed ${fmtCount(info.requested)} more` : ''}.</p>` : ''}
       ${info.waitSec ? `<p>Back at <b>${fmtClockTime(until)}</b>${info.per === 'day' ? ' (the allowance comes back gradually over 24 hours)' : ''}.</p>` : ''}
       ${others.length ? `
         <h3 class="small-head">Keep studying now</h3>
@@ -144,10 +144,10 @@ function usageSectionHTML() {
           <b>${esc(m)}${m === cur ? ' <span class="muted small">(in use)</span>' : ''}</b>
           ${blk ? `<span class="status bad-text">Paused until ${fmtClockTime(blk.until)} (${esc(LIMIT_LABELS[blk.kind] || 'limit')})</span>` : `<span class="status good-text">Available</span>`}
         </div>
-        <p class="muted small">Last 24 hours on this computer: ${fmtNum(u.tokens)} tokens in ${u.requests} request${u.requests === 1 ? '' : 's'}.</p>
+        <p class="muted small">Last 24 hours on this computer: ${fmtCount(u.tokens)} tokens in ${u.requests} request${u.requests === 1 ? '' : 's'}.</p>
         ${pct != null ? `
           <div class="meter ${pct >= 90 ? 'high' : ''}" role="img" aria-label="About ${pct}% of the daily allowance used"><span style="width:${pct}%"></span></div>
-          <p class="muted small">About ${fmtNum(used)} of ${fmtNum(lim)} tokens a day used (${pct}%).</p>` : ''}
+          <p class="muted small">About ${fmtCount(used)} of ${fmtCount(lim)} tokens a day used (${pct}%).</p>` : ''}
       </div>`;
   };
   return `

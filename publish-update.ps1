@@ -24,6 +24,8 @@ function Save-Text($path, $text) { [IO.File]::WriteAllText((Join-Path $root $pat
 function Invoke-Git { & git.exe @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join " ") failed." } }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is not installed. Get it from https://git-scm.com' }
+# Never ship scripts that clash with each other (the app would break for everyone).
+& (Join-Path $root 'check-scripts.ps1')
 
 $v = Get-Content (Join-Path $root 'version.json') -Raw | ConvertFrom-Json
 $u = Get-Content (Join-Path $root 'update.json') -Raw | ConvertFrom-Json
