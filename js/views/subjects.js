@@ -145,6 +145,10 @@ function docRow(s, d) {
         <span class="muted small">${d.pages} pages, ${d.chapters.length} chapters ${how ? `(${how})` : ''}</span>
       </summary>
       <ol class="chapters">${d.chapters.map(c => `<li>${esc(c.title)} <span class="muted small">p. ${c.start}${c.end > c.start ? '–' + c.end : ''}</span></li>`).join('')}</ol>
+      ${d.hasPdf || !/\.pdf$/i.test(d.name) ? '' : `
+      <p class="small note-inline">This PDF was added before quizzes could show its figures.
+        <label class="link">Add the file again<input type="file" accept="application/pdf,.pdf" hidden data-reattach="${d.id}" data-sid="${s.id}"></label>
+        to turn them on. Your chapters stay the same.</p>`}
       <div class="row gap wrap">
         <button class="btn small" data-act="redetect" data-sid="${s.id}" data-id="${d.id}">Find chapters again${hasKey() ? ' with AI' : ''}</button>
         <button class="btn small ghost danger-text" data-act="removeDoc" data-sid="${s.id}" data-id="${d.id}">Remove PDF</button>
@@ -180,6 +184,12 @@ function mountSubject(id) {
   ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => uploadFiles(s, Array.from(e.dataTransfer.files).filter(f => /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name))));
+  $$('input[data-reattach]').forEach(inp => inp.addEventListener('change', async () => {
+    const d = s.docs.find(x => x.id === inp.dataset.reattach);
+    if (!inp.files[0] || !d) return;
+    try { await reattachPdf(d, inp.files[0]); toast(`Figures turned on for ${d.name}`, 'good'); render(); }
+    catch (e) { showError(e); }
+  }));
 }
 
 let uploading = false;
@@ -191,8 +201,9 @@ async function uploadFiles(s, files) {
   try {
     for (const f of files) {
       set(`Reading ${f.name}…`);
+      const bytes = new Uint8Array(await f.arrayBuffer());
       const pages = await extractPdf(f, (i, n) => set(`Reading ${f.name}: page ${i} of ${n}`));
-      const doc = await addDocument(s, f.name, pages, m => set(`${f.name}: ${m}`));
+      const doc = await addDocument(s, f.name, pages, m => set(`${f.name}: ${m}`), bytes);
       toast(`Added ${doc.name}: ${doc.pages} pages, ${doc.chapters.length} chapters`, 'good');
     }
   } catch (e) { showError(e); }
@@ -247,7 +258,7 @@ ACT.renameSubject = el => {
 ACT.deleteSubject = async el => {
   const s = subjectById(el.dataset.id);
   if (!(await confirmBox('Delete subject?', `This deletes “${s.name}” with its PDFs, quizzes, flashcards and exams. It cannot be undone.`, 'Delete subject'))) return;
-  for (const d of s.docs) await kvDel('doc:' + d.id);
+  for (const d of s.docs) { await kvDel('doc:' + d.id); await kvDel('pdf:' + d.id); }
   S.subjects = S.subjects.filter(x => x.id !== s.id);
   S.quizzes = S.quizzes.filter(x => x.subjectId !== s.id);
   S.cards = S.cards.filter(x => x.subjectId !== s.id);
@@ -279,10 +290,16 @@ function openQuizDialog(s, { chapters = null, kind = 'quiz', count = 10, onDone 
           <select name="difficulty"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select>
         </label>
       </div>
+      <label>Timer
+        <select name="timer">${timerOptions(kind === 'test' ? suggestedMinutes(count) : 0)}</select>
+      </label>
       <fieldset><legend>Chapters</legend>${chapterChecklist(chs, chapters)}</fieldset>
       <div class="row end gap"><button type="button" class="btn ghost" data-act="closeModal">Cancel</button><button class="btn primary">Create quiz</button></div>
     </form>`);
   wireChecklist(el);
+  // A mock test keeps its suggested time in step with the number of questions.
+  const form = $('#quizForm', el);
+  form.count.addEventListener('change', () => { if (kind === 'test' || +form.timer.value) form.timer.innerHTML = timerOptions(suggestedMinutes(+form.count.value)); });
   $('#quizForm', el).addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -291,7 +308,7 @@ function openQuizDialog(s, { chapters = null, kind = 'quiz', count = 10, onDone 
     const btn = e.target.querySelector('.btn.primary');
     try {
       const out = await busy(btn, 'Writing questions…', () => aiGenerateQuiz(s, { count: +fd.get('count'), difficulty: fd.get('difficulty'), chapters: picked, kind }));
-      const quiz = { id: uid(), subjectId: s.id, title: out.title, kind, chapters: picked, createdAt: Date.now(), questions: out.questions, attempts: [] };
+      const quiz = { id: uid(), subjectId: s.id, title: out.title, kind, chapters: picked, createdAt: Date.now(), questions: out.questions, attempts: [], timeLimit: +fd.get('timer') || 0 };
       S.quizzes.push(quiz); save(); closeModal();
       onDone && onDone(quiz);
       location.hash = '#/quiz/' + quiz.id;

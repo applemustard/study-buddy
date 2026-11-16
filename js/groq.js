@@ -72,10 +72,15 @@ function fixLatex(s) {
   s = s.replace(/\f/g, '\\f').replace(/\x08/g, '\\b').replace(/\t(?=[a-zA-Z])/g, '\\t').replace(/\r(?=[a-zA-Z])/g, '\\r');
   return s.replace(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$/g, m => m.replace(/\n(?=[a-zA-Z])/g, '\\n'));
 }
-function fixLatexDeep(v) {
-  if (typeof v === 'string') return fixLatex(v);
-  if (Array.isArray(v)) return v.map(fixLatexDeep);
-  if (v && typeof v === 'object') { for (const k in v) v[k] = fixLatexDeep(v[k]); }
+/* Bare LaTeX (no delimiters), as in a formula exhibit: no real tab or newline belongs before a letter. */
+function fixLatexBare(s) {
+  return s.replace(/\f/g, '\\f').replace(/\x08/g, '\\b').replace(/\t(?=[a-zA-Z])/g, '\\t').replace(/\r(?=[a-zA-Z])/g, '\\r').replace(/\n(?=[a-zA-Z])/g, '\\n');
+}
+function fixLatexDeep(v, key) {
+  // Code is left exactly as written: its tabs and newlines are real.
+  if (typeof v === 'string') return key === 'content' ? v : key === 'latex' ? fixLatexBare(v) : fixLatex(v);
+  if (Array.isArray(v)) return v.map(x => fixLatexDeep(x));
+  if (v && typeof v === 'object') { for (const k in v) v[k] = fixLatexDeep(v[k], k); }
   return v;
 }
 
@@ -122,15 +127,22 @@ async function aiGenerateQuiz(subject, { count = 10, difficulty = 'medium', chap
 - Wrong options must be plausible. Never ask about page numbers, the document or the author.
 - "chapter" must be copied exactly from the list above.
 - "answer" is the 0-based index of the correct option.
+- SHOW WHAT YOU ASK ABOUT: the student only sees the question, so every question must be answerable from what is shown. When a question is about code, a formula, a table of values or data that would be charted, include that material in "exhibit" (otherwise leave "exhibit" out):
+  {"type": "code", "language": "java", "content": "the complete code, with real line breaks and indentation"}
+  {"type": "table", "title": "...", "headers": ["...", "..."], "rows": [["...", "..."]]}
+  {"type": "chart", "chart": "bar|line|pie", "title": "...", "labels": ["..."], "series": [{"name": "...", "values": [1, 2]}], "xLabel": "...", "yLabel": "..."}
+  {"type": "formula", "latex": "LaTeX without delimiters"}
+  Never write "the following code", "the table below" or "the switch statement" without including it. Never put the answer itself in the exhibit. Take code and data from the material when it is there.
+- The material is split into pages marked [p.N]. When a question is about a figure, diagram, chart, picture or screenshot printed in the material (look for words like Figure, Fig., Diagram, Chart, Graph, Listing), set "figurePage" to the page number it is on, so the app can show the student that page. Otherwise leave "figurePage" out.
 
 ${MATH_JSON}
-Return: {"title": "short descriptive quiz title", "questions": [{"question": "...", "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right"}]}
+Return: {"title": "short descriptive quiz title", "questions": [{"question": "...", "exhibit": {...}, "figurePage": 3, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right"}]}
 
 STUDY MATERIAL:
 ${context}`;
 
   const out = await groqChat([{ role: 'system', content: SYS_TEACHER }, { role: 'user', content: prompt }],
-    { temperature: 0.7, maxTokens: Math.min(8000, 400 + count * 260) });
+    { temperature: 0.7, maxTokens: Math.min(8000, 500 + count * 380) });
 
   const questions = (out.questions || []).map(q => {
     const options = (q.options || []).map(String).filter(Boolean).slice(0, 6);
@@ -139,7 +151,7 @@ ${context}`;
     if (!q.question || options.length < 2 || !(ans >= 0 && ans < options.length)) return null;
     // Shuffle options so the correct answer isn't always in the same slot.
     const order = shuffle(options.map((_, i) => i));
-    return {
+    const item = {
       id: uid(),
       question: String(q.question),
       options: order.map(i => options[i]),
@@ -147,10 +159,34 @@ ${context}`;
       chapter: matchChapter(q.chapter, names),
       explanation: String(q.explanation || ''),
     };
+    const ex = validateExhibit(q.exhibit);
+    if (ex) item.exhibit = ex;
+    const fp = parseInt(q.figurePage, 10);
+    if (fp > 0) item.figurePage = fp;
+    return item;
   }).filter(Boolean);
 
   if (!questions.length) throw new Error('The AI did not return usable questions. Try again.');
+  await attachFigures(subject, questions);
   return { title: String(out.title || `${subject.name} quiz`).slice(0, 90), questions };
+}
+
+/* Turns "figurePage" into an embedded JPEG of that page's picture (needs the original PDF file). */
+async function attachFigures(subject, questions) {
+  const chs = subjectChapters(subject);
+  let added = 0;
+  for (const q of questions) {
+    const page = q.figurePage;
+    delete q.figurePage;
+    if (!page || added >= 8) continue;
+    const ch = chs.find(c => c.name === q.chapter);
+    const doc = ch && subject.docs.find(d => d.id === ch.docId);
+    if (!doc || !doc.hasPdf || page > doc.pages) continue;
+    try {
+      const fig = await figureFromPage(doc.id, page);
+      if (fig) { q.figure = { src: fig.src, caption: `Page ${page} of ${doc.name.replace(/\.pdf$/i, '')}`, page }; added++; }
+    } catch (e) { console.warn('Could not draw page', page, e); }
+  }
 }
 
 /* AI summary of what went wrong in an attempt. Chapter numbers are computed locally. */
@@ -162,7 +198,7 @@ async function aiReviewAttempt(quiz, attempt) {
 Per-chapter results: ${JSON.stringify(perChapter.map(c => ({ chapter: c.chapter, correct: c.correct, total: c.total })))}
 
 Questions they got wrong:
-${missed.map(({ q, i }) => `- [${q.chapter}] ${q.question}
+${missed.map(({ q, i }) => `- [${q.chapter}] ${q.question}${exhibitText(q) ? `\n  Shown with it: ${exhibitText(q).replace(/\n/g, '\n    ')}` : ''}
   Their answer: ${attempt.answers[i] == null ? '(skipped)' : q.options[attempt.answers[i]]}
   Correct answer: ${q.options[q.answer]}`).join('\n') || '(none)'}
 

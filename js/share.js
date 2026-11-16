@@ -41,7 +41,8 @@ async function decodeShare(text) {
 
 /* ---------- building payloads ---------- */
 
-const cleanQuestion = q => ({ question: q.question, options: q.options, answer: q.answer, chapter: q.chapter, explanation: q.explanation });
+const cleanQuestion = q => ({ question: q.question, options: q.options, answer: q.answer, chapter: q.chapter, explanation: q.explanation,
+  ...(q.exhibit ? { exhibit: q.exhibit } : {}), ...(q.figure ? { figure: { src: q.figure.src, caption: q.figure.caption, page: q.figure.page } } : {}) });
 const cleanCard = c => ({ front: c.front, back: c.back, chapter: c.chapter, kind: c.kind });
 const cleanNote = n => ({ title: n.title, style: n.style, markdown: n.markdown });
 
@@ -199,7 +200,12 @@ function validateShare(p) {
   const q = x => {
     const options = (Array.isArray(x.options) ? x.options : []).map(o => str(o, 500)).slice(0, 6);
     const answer = Number.isInteger(x.answer) && x.answer >= 0 && x.answer < options.length ? x.answer : -1;
-    return options.length >= 2 && answer >= 0 && x.question ? { id: uid(), question: str(x.question, 1500), options, answer, chapter: str(x.chapter, 120) || 'General', explanation: str(x.explanation, 1500) } : null;
+    if (!(options.length >= 2 && answer >= 0 && x.question)) return null;
+    const item = { id: uid(), question: str(x.question, 1500), options, answer, chapter: str(x.chapter, 120) || 'General', explanation: str(x.explanation, 1500) };
+    const ex = validateExhibit(x.exhibit), fig = validateFigure(x.figure);
+    if (ex) item.exhibit = ex;
+    if (fig) item.figure = fig;
+    return item;
   };
   const quiz = x => ({ title: str(x.title, 100) || 'Shared quiz', kind: x.kind === 'test' ? 'test' : 'quiz', questions: (x.questions || []).slice(0, 200).map(q).filter(Boolean) });
   const card = x => x && x.front && x.back ? { front: str(x.front, 2000), back: str(x.back, 4000), chapter: str(x.chapter, 120), kind: ['targeted', 'broad', 'core', 'manual'].includes(x.kind) ? x.kind : 'core' } : null;

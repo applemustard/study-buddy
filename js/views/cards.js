@@ -74,7 +74,10 @@ function renderCards(sid) {
       <section class="block">
         <div class="block-head"><h2>All cards in ${esc(s.name)}</h2><button class="btn small" data-act="toggleManage">${CS.manage ? 'Hide list' : 'Show list'}</button></div>
         ${CS.manage ? manageHTML(all) : ''}
-        <button class="link small danger-text" data-act="resetProgress" data-sid="${s.id}">Reset Got it / Again marks</button>
+        <div class="row gap wrap deck-tools">
+          <button class="btn small" data-act="startOver" data-sid="${s.id}">Delete cards and start over</button>
+          <button class="link small danger-text" data-act="resetProgress" data-sid="${s.id}">Reset Got it / Again marks</button>
+        </div>
       </section>`
     : `<div class="empty">
         <h2>No flashcards yet</h2>
@@ -201,6 +204,76 @@ ACT.resetProgress = async el => {
   if (!(await confirmBox('Reset progress?', 'Every card goes back to Not studied. The cards themselves stay.', 'Reset marks'))) return;
   cardsFor(el.dataset.sid).forEach(c => (c.status = 'new')); save();
   startCardSession(el.dataset.sid); render();
+};
+
+/* ---------- delete and start over ---------- */
+
+const isAiCard = c => ['core', 'targeted', 'broad'].includes(c.kind) && !c.sharedBy;
+const DELETE_SETS = {
+  all: { label: 'All cards', test: () => true },
+  ai: { label: 'Only cards the AI made', test: isAiCard, hint: 'Keeps cards you wrote and cards from friends' },
+  again: { label: 'Only the Again pile', test: c => c.status === 'again' },
+  got: { label: 'Only the Got it pile', test: c => c.status === 'got' },
+};
+
+ACT.startOver = el => {
+  const s = subjectById(el.dataset.sid);
+  const all = cardsFor(s.id);
+  const canMake = hasKey() && subjectChapters(s).length > 0;
+  const { el: m } = openModal('Delete cards and start over', `
+    <form id="overForm" class="form">
+      <fieldset><legend>Delete</legend>
+        ${Object.entries(DELETE_SETS).map(([k, d], i) => {
+          const n = all.filter(d.test).length;
+          return `<label class="check"><input type="radio" name="which" value="${k}" ${i === 0 ? 'checked' : ''} ${n ? '' : 'disabled'}> ${d.label} (${n})${d.hint ? ` <span class="muted small">${d.hint}</span>` : ''}</label>`;
+        }).join('')}
+      </fieldset>
+      ${canMake ? `
+      <label class="check"><input type="checkbox" name="remake" checked> Then make a new set from the PDF</label>
+      <label class="indent" id="remakeCount">How many new cards
+        <select name="count">${[6, 10, 15, 20, 30].map(n => `<option>${n}</option>`).join('')}</select>
+      </label>` : `<p class="muted small">${hasKey() ? 'Upload a PDF to this subject to have the AI make a new set.' : 'Add your Groq API key in Settings to have the AI make a new set afterwards.'}</p>`}
+      <p class="warn small">Deleted cards and their Got it / Again marks can't be recovered.</p>
+      <div class="row end gap"><button type="button" class="btn ghost" data-act="closeModal">Cancel</button><button class="btn danger" id="overGo"></button></div>
+    </form>`);
+  const form = $('#overForm', m), go = $('#overGo', m);
+  const sync = () => {
+    const which = form.which.value, n = all.filter(DELETE_SETS[which].test).length;
+    const remake = form.remake && form.remake.checked;
+    if (form.count) {
+      $('#remakeCount', m).hidden = !remake;
+      // Default to replacing about as many cards as are being deleted.
+      if (!form.count.dataset.touched) form.count.value = String([6, 10, 15, 20, 30].reduce((a, b) => Math.abs(b - n) < Math.abs(a - n) ? b : a));
+    }
+    go.textContent = `Delete ${n} card${n === 1 ? '' : 's'}${remake ? ' and make new ones' : ''}`;
+  };
+  form.count && form.count.addEventListener('change', () => (form.count.dataset.touched = '1'));
+  form.addEventListener('change', sync);
+  sync();
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const test = DELETE_SETS[form.which.value].test;
+    const doomed = new Set(all.filter(test).map(c => c.id));
+    const remake = form.remake && form.remake.checked;
+    const count = form.count ? +form.count.value : 0;
+    S.cards = S.cards.filter(c => !doomed.has(c.id));
+    save();
+    if (!remake) {
+      closeModal(); startCardSession(s.id);
+      toast(`Deleted ${doomed.size} card${doomed.size === 1 ? '' : 's'}`, 'good'); render();
+      return;
+    }
+    try {
+      const cards = await busy(go, 'Writing new cards…', () => aiGenerateCards(s, { count }));
+      S.cards.push(...cards); save(); closeModal();
+      startCardSession(s.id, 'new', false, cards.map(c => c.id));
+      toast(`Deleted ${doomed.size} and added ${cards.length} new cards`, 'good');
+      render();
+    } catch (err) {
+      closeModal(); startCardSession(s.id); render();
+      showError(new Error(`Deleted ${doomed.size} cards, but the new set failed: ${err.message} Use "New flashcards from PDF" to try again.`));
+    }
+  });
 };
 
 function cardEditor(sid, card) {

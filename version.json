@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.1",
+    "version":  "1.0.2",
     "launcher":  "1.0.0",
-    "date":  "2026-11-15",
-    "notes":  "New download link: share the repo page and friends always get the latest version."
+    "date":  "2026-11-16",
+    "notes":  "Quizzes now show the code, charts, tables, formulas and PDF figures they ask about, and have an optional timer. Flashcards can be deleted and regenerated."
 }

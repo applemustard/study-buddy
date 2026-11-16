@@ -34,10 +34,14 @@ An internet connection is needed (pdf.js, KaTeX, fonts and the Groq API load fro
 - **Quizzes**: AI multiple-choice questions, each tagged with its chapter. Graded out of 100 and shown as a percentage.
   - The results page shows a bar chart of score by chapter, an AI summary of where you went wrong, and the missed questions with explanations.
   - It then asks whether to create flashcards targeting the missed questions, with about a third broader questions mixed in.
+  - Questions show the material they ask about: code with line numbers and highlighting, tables, bar/line/pie charts and formulas.
+  - Figures from the PDF are cropped from their page and embedded as pictures. You can also add your own picture to any question (upload, paste a screenshot, or crop a PDF page).
+  - Optional timer: pick it on the start screen. It warns you at 1 minute and submits by itself when time runs out. Results show the time taken.
 - **Flashcards**:
   - Flip with a key you choose (Space by default; change it on the flashcard page or in Settings). Use ← → for back and next.
   - Mark cards **Again** (red) or **Got it** (green), by button or with the 1 / 2 keys.
   - Study all cards or one pile, shuffle all cards / the Again pile / the Got it pile, have the AI write new cards from the PDF, or add your own.
+  - **Delete cards and start over**: delete all cards, only the AI-made ones, or one pile, then have the AI make a fresh set.
 - **Calendar**: add exam dates. The AI picks the best day to start reviewing and schedules spaced sessions (read, flashcards, practice quiz, full mock test). Sessions show on the calendar and on the Today page, and start the right activity in one click.
 - **Score trend** per subject across every attempt.
 - **Notes**: the AI writes structured notes from the PDF in one of four styles: outline, Cornell, summary sheet, or questions and answers.

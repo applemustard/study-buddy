@@ -1,28 +1,85 @@
 /* Taking a quiz, grading it out of 100 and the results page. */
 
-let QZ = null; // {quizId, idx, answers[]}
+let QZ = null; // {quizId, idx, answers[], started, startedAt, limitSec, warned}
+
+/* ---------- timer ---------- */
+
+const TIMER_CHOICES = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120];
+function timerOptions(selected = 0) {
+  const list = TIMER_CHOICES.includes(selected) ? TIMER_CHOICES : [...TIMER_CHOICES, selected].sort((a, b) => a - b);
+  return list.map(m => `<option value="${m}" ${m === selected ? 'selected' : ''}>${m ? `${m} minutes` : 'No timer'}</option>`).join('');
+}
+/* About 1.5 minutes a question, rounded to a listed choice. */
+function suggestedMinutes(count) {
+  const want = count * 1.5;
+  return TIMER_CHOICES.filter(Boolean).reduce((a, b) => Math.abs(b - want) < Math.abs(a - want) ? b : a);
+}
+function fmtClock(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? `${h}:${String(m).padStart(2, '0')}` : String(m)) + ':' + String(s).padStart(2, '0');
+}
+
+let quizTimer = null;
+function stopTimer() { clearInterval(quizTimer); quizTimer = null; }
+function startTimer() { stopTimer(); quizTimer = setInterval(tickTimer, 500); tickTimer(); }
+
+function timerState() {
+  const elapsed = (Date.now() - QZ.startedAt) / 1000;
+  if (!QZ.limitSec) return { text: fmtClock(elapsed), label: 'elapsed', tone: '' };
+  const left = QZ.limitSec - elapsed;
+  return { left, text: fmtClock(left), label: 'left', tone: left <= 60 ? 'urgent' : left <= Math.max(120, QZ.limitSec * 0.2) ? 'low' : '' };
+}
+
+function tickTimer() {
+  if (!QZ || !QZ.started) return stopTimer();
+  const t = timerState();
+  const el = document.getElementById('qtimer');
+  if (el) {
+    el.querySelector('b').textContent = t.text;
+    el.className = `qtimer ${t.tone}`;
+  }
+  if (!QZ.limitSec) return;
+  if (t.left <= 60 && !QZ.warned) { QZ.warned = true; toast('1 minute left. Unanswered questions count as wrong.', 'error', 6000); }
+  if (t.left <= 0) finishQuiz(true);
+}
+
+function timerHTML() {
+  const t = timerState();
+  return `<div id="qtimer" class="qtimer ${t.tone}" role="timer" aria-label="${QZ.limitSec ? 'Time left' : 'Time spent'}"><b>${t.text}</b> <span>${t.label}</span></div>`;
+}
+
+/* ---------- taking the quiz ---------- */
 
 function renderQuiz(id) {
   const q = quizById(id);
   if (!q) return notFound('That quiz no longer exists.');
-  if (!QZ || QZ.quizId !== id) QZ = { quizId: id, idx: 0, answers: new Array(q.questions.length).fill(null) };
+  if (!QZ || QZ.quizId !== id) { stopTimer(); QZ = { quizId: id, idx: 0, answers: new Array(q.questions.length).fill(null), started: false }; }
   const s = subjectById(q.subjectId);
-  const i = QZ.idx, n = q.questions.length, qq = q.questions[i];
-  const answered = QZ.answers.filter(a => a != null).length;
-  return `
+  const head = `
     <header class="page-head">
       <div>
         <p class="crumb"><a href="#/subject/${s?.id}">${esc(s?.name || 'Subject')}</a></p>
         <h1>${esc(q.title)}</h1>
       </div>
       <button class="btn ghost" data-act="quitQuiz">Leave quiz</button>
-    </header>
+    </header>`;
+  if (!QZ.started) return head + startScreenHTML(q);
+  if (!quizTimer) startTimer();
+  const i = QZ.idx, n = q.questions.length, qq = q.questions[i];
+  const answered = QZ.answers.filter(a => a != null).length;
+  return `${head}
     <div class="quiz">
-      <div class="qprogress" aria-label="Question ${i + 1} of ${n}">
-        ${q.questions.map((_, k) => `<button class="qdot ${k === i ? 'cur' : ''} ${QZ.answers[k] != null ? 'done' : ''}" data-act="quizGo" data-i="${k}" aria-label="Question ${k + 1}${QZ.answers[k] != null ? ', answered' : ''}"></button>`).join('')}
+      <div class="quiz-top">
+        <div class="qprogress" aria-label="Question ${i + 1} of ${n}">
+          ${q.questions.map((_, k) => `<button class="qdot ${k === i ? 'cur' : ''} ${QZ.answers[k] != null ? 'done' : ''}" data-act="quizGo" data-i="${k}" aria-label="Question ${k + 1}${QZ.answers[k] != null ? ', answered' : ''}"></button>`).join('')}
+        </div>
+        ${timerHTML()}
       </div>
       <p class="qmeta">Question ${i + 1} of ${n} <span class="muted">· ${esc(qq.chapter)}</span></p>
       <h2 class="qtext">${esc(qq.question)}</h2>
+      ${exhibitsHTML(qq, { quizId: q.id, index: i })}
+      <p class="small add-pic"><button class="link" data-act="addPicture" data-q="${q.id}" data-i="${i}">${qq.figure ? 'Change the picture' : 'Is a picture missing? Add one'}</button></p>
       <div class="options" role="radiogroup">
         ${qq.options.map((o, k) => `
           <button class="option ${QZ.answers[i] === k ? 'picked' : ''}" role="radio" aria-checked="${QZ.answers[i] === k}" data-act="quizPick" data-k="${k}">
@@ -40,6 +97,34 @@ function renderQuiz(id) {
     </div>`;
 }
 
+function startScreenHTML(q) {
+  const n = q.questions.length;
+  const atts = q.attempts || [];
+  const best = atts.length ? Math.max(...atts.map(a => a.score)) : null;
+  const visuals = q.questions.filter(x => x.exhibit || x.figure).length;
+  const chapters = [...new Set(q.questions.map(x => x.chapter))];
+  return `
+    <section class="quiz-start">
+      <p class="qs-count"><b>${n}</b> question${n === 1 ? '' : 's'}</p>
+      <p class="muted">${esc(chapters.slice(0, 4).join(', '))}${chapters.length > 4 ? ` and ${chapters.length - 4} more` : ''}${visuals ? `. ${visuals} come${visuals === 1 ? 's' : ''} with code, a chart or a picture.` : '.'}</p>
+      ${best != null ? `<p class="muted">Your best so far: <b class="${scoreTone(best)}-text">${best}%</b> after ${atts.length} attempt${atts.length === 1 ? '' : 's'}.</p>` : ''}
+      <label class="qs-timer">Timer
+        <select id="qsTimer">${timerOptions(q.timeLimit || 0)}</select>
+      </label>
+      <p class="muted small">The timer starts when you press Start. If time runs out, the quiz is submitted with the answers you have.</p>
+      <button class="btn primary qs-go" data-act="quizStart">Start quiz</button>
+    </section>`;
+}
+
+ACT.quizStart = () => {
+  const q = quizById(QZ.quizId);
+  const minutes = +($('#qsTimer')?.value || 0);
+  q.timeLimit = minutes; save(); // remembered for the next attempt
+  Object.assign(QZ, { started: true, startedAt: Date.now(), limitSec: minutes * 60, warned: false });
+  startTimer();
+  render();
+};
+
 ACT.quizPick = el => {
   QZ.answers[QZ.idx] = +el.dataset.k;
   render();
@@ -50,25 +135,38 @@ ACT.quizNext = () => { const q = quizById(QZ.quizId); if (QZ.idx < q.questions.l
 ACT.quitQuiz = async () => {
   const q = quizById(QZ.quizId);
   if (QZ.answers.some(a => a != null) && !(await confirmBox('Leave this quiz?', 'Your answers so far will not be graded.', 'Leave quiz'))) return;
-  QZ = null; location.hash = '#/subject/' + q.subjectId;
+  stopTimer(); QZ = null; location.hash = '#/subject/' + q.subjectId;
 };
 
 ACT.quizSubmit = async () => {
-  const q = quizById(QZ.quizId);
   const blank = QZ.answers.filter(a => a == null).length;
   if (blank && !(await confirmBox('Submit with unanswered questions?', `${blank} question${blank > 1 ? 's are' : ' is'} unanswered and will count as wrong.`, 'Submit quiz', false))) return;
+  if (QZ) finishQuiz(false); // the timer may have submitted it while the box was open
+};
+
+function finishQuiz(timedOut) {
+  stopTimer();
+  if (timedOut) closeModal();
+  const q = quizById(QZ.quizId);
   const correct = q.questions.filter((qq, i) => QZ.answers[i] === qq.answer).length;
-  const attempt = { id: uid(), at: Date.now(), answers: QZ.answers.slice(), correct, score: Math.round(correct / q.questions.length * 100), review: null, cardsOffer: null };
+  const spent = Math.round((Date.now() - QZ.startedAt) / 1000);
+  const attempt = {
+    id: uid(), at: Date.now(), answers: QZ.answers.slice(), correct, score: Math.round(correct / q.questions.length * 100),
+    review: null, cardsOffer: null,
+    durationSec: QZ.limitSec ? Math.min(spent, QZ.limitSec) : spent, timeLimitSec: QZ.limitSec || 0, timedOut: !!timedOut,
+  };
   q.attempts = q.attempts || [];
   q.attempts.push(attempt);
   // A quiz launched from a study plan session marks that session done.
   for (const ex of S.exams) for (const ses of ex.plan?.sessions || []) if (ses.quizId === q.id) ses.done = true;
   save(); QZ = null;
+  if (timedOut) toast("Time's up. Your quiz was submitted with the answers you had.", 'info', 7000);
   location.hash = `#/result/${q.id}/${attempt.id}`;
-};
+}
 
 function quizKeys(e) {
   if (!QZ) return;
+  if (!QZ.started) { if (e.key === 'Enter' && !e.target.closest('button, select')) ACT.quizStart(); return; }
   const q = quizById(QZ.quizId);
   const qq = q.questions[QZ.idx];
   const n = parseInt(e.key, 10);
@@ -107,6 +205,9 @@ function renderResult(qid, aid) {
       <div>
         <p class="score-line"><b>${a.correct} of ${q.questions.length}</b> correct, ${a.score} out of 100 points.</p>
         <p>${verdict}${prev ? ` ${a.score > prev.score ? `Up ${a.score - prev.score} points` : a.score < prev.score ? `Down ${prev.score - a.score} points` : 'Same score as'} from your last attempt.` : ''}</p>
+        ${a.durationSec != null ? `<p class="time-line">${a.timedOut
+          ? `<b class="bad-text">Time ran out</b> after ${fmtClock(a.timeLimitSec)}.`
+          : `Time: <b>${fmtClock(a.durationSec)}</b>${a.timeLimitSec ? ` of ${fmtClock(a.timeLimitSec)}` : ''}, about ${fmtClock(a.durationSec / q.questions.length)} a question.`}</p>` : ''}
       </div>
     </section>
 
@@ -128,6 +229,7 @@ function renderResult(qid, aid) {
       <ol class="missed">${missed.map(({ qq, i }) => `
         <li>
           <p class="mq">${esc(qq.question)} <span class="muted small">${esc(qq.chapter)}</span></p>
+          ${exhibitsHTML(qq, { quizId: q.id, index: i, compact: true })}
           <p class="ans wrong">Your answer: ${a.answers[i] == null ? '<i>skipped</i>' : esc(qq.options[a.answers[i]])}</p>
           <p class="ans right">Correct: ${esc(qq.options[qq.answer])}</p>
           ${qq.explanation ? `<p class="muted">${esc(qq.explanation)}</p>` : ''}

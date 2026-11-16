@@ -138,7 +138,8 @@ async function buildContext(subject, { chapters = null, budget = 12000 } = {}) {
   const texts = [];
   for (const c of chs) {
     const pages = await getPages(c.docId);
-    texts.push({ name: c.name, text: pages.slice(c.start - 1, c.end).join('\n') });
+    // [p.N] markers let the AI point at the page a figure is on.
+    texts.push({ name: c.name, text: pages.slice(c.start - 1, c.end).map((p, k) => `[p.${c.start + k}]\n${p}`).join('\n') });
   }
   const total = texts.reduce((s, t) => s + t.text.length, 0) || 1;
   return texts.filter(t => t.text.trim()).map(t => {
@@ -159,18 +160,23 @@ function excerpt(text, budget) {
     // start on a word boundary
     const sp = text.indexOf(' ', s);
     if (sp > -1 && sp - s < 40) s = sp + 1;
-    parts.push(text.slice(s, s + win));
+    // Keep the page number visible at the start of every excerpt.
+    const mk = text.lastIndexOf('[p.', s);
+    const marker = mk > -1 && !text.slice(s, s + 12).startsWith('[p.') ? (text.slice(mk).match(/^\[p\.\d+\]/) || [''])[0] + ' ' : '';
+    parts.push(marker + text.slice(s, s + win));
   }
   return parts.join('\n[…]\n');
 }
 
 /* Adds a document (pages already extracted) to a subject. */
-async function addDocument(subject, name, pages, onStatus) {
+async function addDocument(subject, name, pages, onStatus, pdfBytes = null) {
   const chars = pages.reduce((s, p) => s + p.length, 0);
   if (chars < 200) throw new Error(`"${name}" has almost no selectable text. If it is a scanned PDF, run it through OCR first or paste the text instead.`);
   onStatus && onStatus('Finding chapters…');
   const { chapters, method } = await detectChapters(pages);
   const doc = { id: uid(), name, pages: pages.length, chars, addedAt: Date.now(), chapters, method };
+  // The original file is kept so quizzes can show figures from its pages.
+  if (pdfBytes) { await kvSet('pdf:' + doc.id, pdfBytes); doc.hasPdf = true; }
   await kvSet('doc:' + doc.id, pages);
   pageCache.set(doc.id, pages);
   subject.docs.push(doc);
@@ -188,6 +194,20 @@ async function redetectChapters(subject, doc) {
 async function removeDocument(subject, docId) {
   subject.docs = subject.docs.filter(d => d.id !== docId);
   pageCache.delete(docId);
+  pdfDocCache.delete(docId);
   await kvDel('doc:' + docId);
+  await kvDel('pdf:' + docId);
+  save();
+}
+
+/* Older uploads kept only the text. Attaching the file again enables figures without touching chapters. */
+async function reattachPdf(doc, file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+  const n = pdf.numPages; await pdf.destroy();
+  if (n !== doc.pages) throw new Error(`That PDF has ${n} pages, but "${doc.name}" has ${doc.pages}. Pick the same file.`);
+  await kvSet('pdf:' + doc.id, bytes);
+  pdfDocCache.delete(doc.id);
+  doc.hasPdf = true;
   save();
 }
