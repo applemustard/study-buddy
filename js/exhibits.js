@@ -176,6 +176,87 @@ const CODE_KEYWORDS = new Set(('abstract and as assert async await auto bool boo
 const HASH_COMMENT_LANGS = /^(py|python|rb|ruby|sh|bash|shell|zsh|r|perl|yaml|yml|toml|powershell|ps1)$/;
 
 function codeHTML(x) {
+  const lines = highlightLines(x.content, x.language);
+  return `<figure class="ex ex-code">
+    <figcaption>${esc(x.language ? x.language.toUpperCase() === x.language ? x.language : x.language[0].toUpperCase() + x.language.slice(1) : 'Code')}</figcaption>
+    <pre><code>${lines.map(l => `<span class="ln">${l || ' '}</span>`).join('')}</code></pre>
+  </figure>`;
+}
+
+/* --- code in answer options --- */
+
+/* True for text that reads as code rather than a sentence. */
+function looksLikeCode(s) {
+  s = String(s || '').trim();
+  if (s.length < 3) return false;
+  if (s.includes('\n') && /[;{}()=]/.test(s)) return true;
+  const bare = s.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""');
+  const prose = (bare.match(/\b(the|a|an|is|are|was|were|be|because|it|its|of|when|will|this|that|which|only|does|not|but|to|from|with|would|because)\b/gi) || []).length;
+  if (prose >= 3) return false;
+  let sig = 0;
+  if (/;\s*(\S|$)/.test(bare)) sig += 2;
+  if (/[{}]/.test(bare)) sig += 2;
+  if (/\b\w+(\.\w+)+\s*\(/.test(bare)) sig++;
+  if (/\b(if|for|while|switch|case|return|else|def|function|var|let|const|int|double|float|char|String|boolean|bool|void|print|printf|println|cout|elif|lambda)\b/.test(bare)) sig++;
+  if (/==|!=|&&|\|\||\+\+|\+=|-=|\*=|=>|<<|>>|::/.test(bare)) sig++;
+  if (/\w\s*\([^)]*\)/.test(bare)) sig++;
+  return sig >= 3;
+}
+
+/* Whether a question's options should be shown as code. */
+function optionsAreCode(qq) {
+  if (qq.optionLang) return true;
+  const opts = qq.options || [];
+  return opts.length > 0 && opts.filter(looksLikeCode).length >= Math.ceil(opts.length / 2);
+}
+
+/* Lays out code that arrived on one line: a statement per line, blocks indented, "else" on its own line. */
+function layoutCode(s) {
+  s = String(s).replace(/^(\\t)+/gm, m => '    '.repeat(m.length / 2)); // tabs the LaTeX repair wrote out
+  if (s.includes('\n') || !/[;{]/.test(s)) return s;
+  const lines = [];
+  let cur = '', depth = 0, paren = 0, quote = '';
+  const push = () => { if (cur.trim()) lines.push('    '.repeat(Math.max(0, depth)) + cur.trim()); cur = ''; };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) { cur += c; if (c === '\\') cur += s[++i] ?? ''; else if (c === quote) quote = ''; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+    if (c === '(') paren++;
+    if (c === ')') paren = Math.max(0, paren - 1);
+    if (paren === 0 && /^else\b/.test(s.slice(i)) && cur.trim() && !/[}]\s*$/.test(cur)) push();
+    if (c === ';' && paren === 0) { cur += c; push(); continue; }
+    if (c === '{') { cur += ' {'; push(); depth++; continue; }
+    if (c === '}') {
+      push(); depth--;
+      const rest = s.slice(i + 1).trimStart();
+      if (/^(else|while|catch|finally)\b/.test(rest)) { cur = '} '; i += s.slice(i + 1).length - rest.length; continue; }
+      cur = '}'; push(); continue;
+    }
+    cur += c;
+  }
+  push();
+  return lines.join('\n').replace(/ {2,}\{/g, ' {').replace(/\( +/g, '(');
+}
+
+/* An option shown as a small highlighted code block (no line numbers). */
+function optionCodeHTML(text, language = '') {
+  const lines = highlightLines(layoutCode(text), language);
+  return `<code class="opt-code">${lines.map(l => `<span class="ln">${l || ' '}</span>`).join('')}</code>`;
+}
+
+/* Text with `backtick` spans shown as inline code. Escapes everything else. */
+function inlineCode(text) {
+  return esc(text).replace(/`([^`\n]{1,200})`/g, '<code class="ic">$1</code>');
+}
+
+/* One answer option, as code or as text. */
+function optionHTML(qq, text) {
+  return optionsAreCode(qq) ? optionCodeHTML(text, qq.optionLang || qq.exhibit?.language || '') : inlineCode(text);
+}
+
+/* Highlighted HTML for each line of code. */
+function highlightLines(content, language) {
+  const x = { content, language: language || '' };
   const hash = HASH_COMMENT_LANGS.test(x.language);
   const re = new RegExp([
     hash ? '(#[^\\n]*)' : '(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)',
@@ -200,10 +281,7 @@ function codeHTML(x) {
       if (piece) lines[lines.length - 1].push(cls ? `<span class="${cls}">${esc(piece)}</span>` : esc(piece));
     });
   }
-  return `<figure class="ex ex-code">
-    <figcaption>${esc(x.language ? x.language.toUpperCase() === x.language ? x.language : x.language[0].toUpperCase() + x.language.slice(1) : 'Code')}</figcaption>
-    <pre><code>${lines.map(l => `<span class="ln">${l.join('') || ' '}</span>`).join('')}</code></pre>
-  </figure>`;
+  return lines.map(l => l.join(''));
 }
 
 /* --- table --- */

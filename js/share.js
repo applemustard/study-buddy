@@ -42,7 +42,7 @@ async function decodeShare(text) {
 /* ---------- building payloads ---------- */
 
 const cleanQuestion = q => ({ question: q.question, options: q.options, answer: q.answer, chapter: q.chapter, explanation: q.explanation,
-  ...(q.exhibit ? { exhibit: q.exhibit } : {}), ...(q.figure ? { figure: { src: q.figure.src, caption: q.figure.caption, page: q.figure.page } } : {}) });
+  ...(q.exhibit ? { exhibit: q.exhibit } : {}), ...(q.optionLang ? { optionLang: q.optionLang } : {}), ...(q.figure ? { figure: { src: q.figure.src, caption: q.figure.caption, page: q.figure.page } } : {}) });
 const cleanCard = c => ({ front: c.front, back: c.back, chapter: c.chapter, kind: c.kind });
 const cleanNote = n => ({ title: n.title, style: n.style, markdown: n.markdown });
 
@@ -198,13 +198,14 @@ function validateShare(p) {
   if (!p || p.app !== 'study-buddy' || !['quiz', 'cards', 'note', 'subject'].includes(p.type)) throw new Error('That is not something Study Buddy can import.');
   const str = (v, n = 4000) => String(v ?? '').slice(0, n);
   const q = x => {
-    const options = (Array.isArray(x.options) ? x.options : []).map(o => str(o, 500)).slice(0, 6);
+    const options = (Array.isArray(x.options) ? x.options : []).map(o => str(o, 1500)).slice(0, 6);
     const answer = Number.isInteger(x.answer) && x.answer >= 0 && x.answer < options.length ? x.answer : -1;
     if (!(options.length >= 2 && answer >= 0 && x.question)) return null;
     const item = { id: uid(), question: str(x.question, 1500), options, answer, chapter: str(x.chapter, 120) || 'General', explanation: str(x.explanation, 1500) };
     const ex = validateExhibit(x.exhibit), fig = validateFigure(x.figure);
     if (ex) item.exhibit = ex;
     if (fig) item.figure = fig;
+    if (x.optionLang) item.optionLang = str(x.optionLang, 20).replace(/[^\w#+.\-]/g, '');
     liftExhibit(item); // quizzes shared from 1.0.2 can have the code inside the question text
     return item;
   };

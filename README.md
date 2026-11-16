@@ -35,6 +35,7 @@ An internet connection is needed (pdf.js, KaTeX, fonts and the Groq API load fro
   - The results page shows a bar chart of score by chapter, an AI summary of where you went wrong, and the missed questions with explanations.
   - It then asks whether to create flashcards targeting the missed questions, with about a third broader questions mixed in.
   - Questions show the material they ask about: code with line numbers and highlighting, tables, bar/line/pie charts and formulas.
+  - Answers that are code show as highlighted code, laid out one statement per line, and `code` inside normal text is shown in code font.
   - Figures from the PDF are cropped from their page and embedded as pictures. You can also add your own picture to any question (upload, paste a screenshot, or crop a PDF page).
   - Questions apply the PDF's ideas to new code, numbers and situations instead of copying its examples, and a new quiz doesn't repeat questions from earlier quizzes on the same subject.
   - **More like this** on a missed question (or **Practice what I missed**) makes a practice quiz that tests the same idea in new ways.

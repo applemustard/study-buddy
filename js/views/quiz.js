@@ -68,6 +68,7 @@ function renderQuiz(id) {
   if (!quizTimer) startTimer();
   const i = QZ.idx, n = q.questions.length, qq = q.questions[i];
   const answered = QZ.answers.filter(a => a != null).length;
+  const codeOpts = optionsAreCode(qq);
   return `${head}
     <div class="quiz">
       <div class="quiz-top">
@@ -77,13 +78,13 @@ function renderQuiz(id) {
         ${timerHTML()}
       </div>
       <p class="qmeta">Question ${i + 1} of ${n} <span class="muted">· ${esc(qq.chapter)}</span></p>
-      <h2 class="qtext">${esc(qq.question)}</h2>
+      <h2 class="qtext">${inlineCode(qq.question)}</h2>
       ${exhibitsHTML(qq, { quizId: q.id, index: i })}
       <p class="small add-pic"><button class="link" data-act="addPicture" data-q="${q.id}" data-i="${i}">${qq.figure ? 'Change the picture' : 'Is a picture missing? Add one'}</button></p>
       <div class="options" role="radiogroup">
         ${qq.options.map((o, k) => `
-          <button class="option ${QZ.answers[i] === k ? 'picked' : ''}" role="radio" aria-checked="${QZ.answers[i] === k}" data-act="quizPick" data-k="${k}">
-            <kbd>${k + 1}</kbd><span>${esc(o)}</span>
+          <button class="option ${codeOpts ? 'code' : ''} ${QZ.answers[i] === k ? 'picked' : ''}" role="radio" aria-checked="${QZ.answers[i] === k}" data-act="quizPick" data-k="${k}">
+            <kbd>${k + 1}</kbd><span class="opt-body">${optionHTML(qq, o)}</span>
           </button>`).join('')}
       </div>
       <div class="row between quiz-nav">
@@ -231,11 +232,11 @@ function renderResult(qid, aid) {
       </div>
       <ol class="missed">${missed.map(({ qq, i }) => `
         <li>
-          <p class="mq">${esc(qq.question)} <span class="muted small">${esc(qq.chapter)}</span></p>
+          <p class="mq">${inlineCode(qq.question)} <span class="muted small">${esc(qq.chapter)}</span></p>
           ${exhibitsHTML(qq, { quizId: q.id, index: i, compact: true })}
-          <p class="ans wrong">Your answer: ${a.answers[i] == null ? '<i>skipped</i>' : esc(qq.options[a.answers[i]])}</p>
-          <p class="ans right">Correct: ${esc(qq.options[qq.answer])}</p>
-          ${qq.explanation ? `<p class="muted">${esc(qq.explanation)}</p>` : ''}
+          <div class="ans wrong">Your answer: ${a.answers[i] == null ? '<i>skipped</i>' : optionHTML(qq, qq.options[a.answers[i]])}</div>
+          <div class="ans right">Correct: ${optionHTML(qq, qq.options[qq.answer])}</div>
+          ${qq.explanation ? `<p class="muted">${inlineCode(qq.explanation)}</p>` : ''}
           <button class="btn small" data-act="moreLike" data-q="${q.id}" data-i="${i}">More like this</button>
         </li>`).join('')}
       </ol>

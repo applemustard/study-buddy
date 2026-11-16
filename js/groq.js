@@ -239,6 +239,7 @@ ${GO_BEYOND}
 - Each question has exactly 4 options and exactly one correct option.
 - Mix question styles: definitions, applying a concept, cause and effect, comparisons, key facts, worked problems.
 - Wrong options must be plausible.
+- CODE IN OPTIONS: when the options are code (for example "which fragment is correct"), add "optionLanguage": "java" (the language) to the question, and write each option as real, complete code laid out the normal way: one statement per line with "\\n" line breaks and 4-space indents, never squashed onto one line. A short piece of code inside an ordinary sentence goes in \`backticks\`.
 - "chapter" must be copied exactly from the list above.
 - "answer" is the 0-based index of the correct option.
 - SHOW WHAT YOU ASK ABOUT: the student only sees the question, so every question must be answerable from what is shown. When a question is about code, a formula, a table of values or data that would be charted, put that material in the separate "exhibit" field as a JSON object (otherwise leave "exhibit" out):
@@ -279,6 +280,8 @@ ${context}`;
     };
     const ex = validateExhibit(q.exhibit);
     if (ex) item.exhibit = ex;
+    const lang = String(q.optionLanguage || '').toLowerCase().trim().slice(0, 20);
+    if (lang && item.options.some(o => o.includes('\n') || looksLikeCode(o))) item.optionLang = lang;
     liftExhibit(item); // the exhibit sometimes lands inside the question text
     item.question = dropSourcePrefix(item.question);
     if (isMetaQuestion(item.question, item.options, names)) { rejected.push(item.question); return null; }
