@@ -225,7 +225,10 @@ function renderResult(qid, aid) {
     <section class="offer" id="cardOffer">${cardOfferHTML(q, a, missed.length, s)}</section>
 
     <section class="block">
-      <div class="block-head"><h2>Questions you missed</h2></div>
+      <div class="block-head">
+        <h2>Questions you missed</h2>
+        <button class="btn" data-act="practiceMissed" data-q="${q.id}" data-a="${a.id}" title="A new quiz that tests the same ideas in new ways">Practice what I missed</button>
+      </div>
       <ol class="missed">${missed.map(({ qq, i }) => `
         <li>
           <p class="mq">${esc(qq.question)} <span class="muted small">${esc(qq.chapter)}</span></p>
@@ -233,6 +236,7 @@ function renderResult(qid, aid) {
           <p class="ans wrong">Your answer: ${a.answers[i] == null ? '<i>skipped</i>' : esc(qq.options[a.answers[i]])}</p>
           <p class="ans right">Correct: ${esc(qq.options[qq.answer])}</p>
           ${qq.explanation ? `<p class="muted">${esc(qq.explanation)}</p>` : ''}
+          <button class="btn small" data-act="moreLike" data-q="${q.id}" data-i="${i}">More like this</button>
         </li>`).join('')}
       </ol>
     </section>` : `<p class="note good">You answered every question correctly.</p>`}`;
@@ -281,6 +285,29 @@ ACT.makeMissedCards = async el => {
     toast(`Added ${cards.length} flashcards`, 'good');
     render();
   } catch (e) { showError(e); }
+};
+
+/* New questions on the same core ideas: 5 for one question, about two per question for everything missed. */
+async function makePracticeQuiz(el, quiz, sources, count) {
+  if (!hasKey()) { toast('Add your Groq API key in Settings first.', 'error'); location.hash = '#/settings'; return; }
+  const s = subjectById(quiz.subjectId);
+  if (!s) return toast('This quiz\'s subject was deleted.', 'error');
+  try {
+    const out = await busy(el, 'Writing new questions…', () => aiSimilarQuiz(s, sources, { count }));
+    const practice = { id: uid(), subjectId: s.id, title: out.title, kind: 'quiz', practiceOf: quiz.id, createdAt: Date.now(), questions: out.questions, attempts: [], timeLimit: 0 };
+    S.quizzes.push(practice); save();
+    location.hash = '#/quiz/' + practice.id;
+  } catch (e) { showError(e); }
+}
+ACT.moreLike = el => {
+  const q = quizById(el.dataset.q);
+  const src = q && q.questions[+el.dataset.i];
+  if (src) makePracticeQuiz(el, q, [src], 5);
+};
+ACT.practiceMissed = el => {
+  const { q, a } = getAttempt(el);
+  const missed = q.questions.filter((qq, i) => a.answers[i] !== qq.answer);
+  if (missed.length) makePracticeQuiz(el, q, missed.slice(0, 15), clamp(missed.length * 2, 5, 20));
 };
 
 async function mountResult(qid, aid) {

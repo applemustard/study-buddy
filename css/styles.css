@@ -120,7 +120,7 @@ kbd.big { font-size: 1rem; min-width: 3.2em; }
 .with-dot { display: flex; align-items: center; gap: 12px; }
 
 .block { margin: 0 0 36px; }
-.block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--rule); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 
 .row { display: flex; align-items: center; }
@@ -291,6 +291,7 @@ kbd.big { font-size: 1rem; min-width: 3.2em; }
 .offer { border: 2px solid var(--blue); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 36px; background: var(--surface); }
 .offer p { max-width: 60ch; }
 .missed li { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.missed li > .btn { margin-top: 6px; }
 .mq { font-weight: 700; }
 .ans { margin: 0 0 4px; padding-left: 12px; border-left: 3px solid; }
 .ans.wrong { border-color: var(--again); }

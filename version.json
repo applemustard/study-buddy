@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.3",
+    "version":  "1.0.4",
     "launcher":  "1.0.0",
     "date":  "2026-11-16",
-    "notes":  "Code in quiz questions now shows as a proper code block (older quizzes are fixed automatically), and quizzes and flashcards stick to the subject instead of asking about chapters and pages."
+    "notes":  "Quizzes now use the PDF\u0027s ideas in new questions instead of copying its examples, and don\u0027t repeat earlier questions. New: More like this and Practice what I missed on the results page."
 }
