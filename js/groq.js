@@ -113,6 +113,47 @@ const SYS_TEACHER = 'You are a precise, encouraging teacher. You only use facts 
 
 /* ---------- quizzes ---------- */
 
+/* Keeps the AI on the subject matter instead of how the PDF is organised. Used by quizzes and flashcards. */
+const CONTENT_ONLY = `- TEST THE SUBJECT, NOT THE DOCUMENT. Every question must test knowledge of the subject itself: concepts, definitions, facts, how and why things work, applying a method, solving a problem, reading code or data. Someone who knows the subject well but has never seen this PDF must be able to answer it.
+- Never ask about how the material is organised: which chapter, section, page, slide or lecture something is in; chapter or section titles and headings; the order topics come in; what a chapter "covers", "introduces" or "discusses"; the table of contents, learning objectives, course details, who wrote the PDF, or the PDF itself. The chapter names are only for the "chapter" field.
+- Do not start with "According to the text/chapter/PDF/slides". Ask about the idea directly.
+- Ignore front matter (title pages, contents, objectives, references, index) and use the explanatory content.
+  Bad: "Which chapter introduces recursion?", "What is the main topic of Section 2?", "What does the document list first?"
+  Good: "What must every recursive method have to avoid infinite recursion?"`;
+
+const META_QUESTION_RES = [
+  // Kept narrow on purpose: "what unit is force measured in", "which Python module" and "which heading tag" are real questions.
+  /\b(which|what|in which|in what)\s+(chapter|page|slide|lecture|lesson)s?\b/i,
+  /\b(chapter|section|page|slide|lecture|lesson)\s+\d+(\.\d+)*\b/i,
+  /\b(table of contents|learning (objectives|outcomes|goals)|syllabus|course (outline|structure)|reading list)\b/i,
+  /\b(covered|discussed|introduced|presented|mentioned|listed|explained|described|addressed)\s+(first|last|next|earlier|later|before|after)\b/i,
+  /\b(first|last|next|final|opening)\s+(topic|chapter|slide|lecture)\b/i,
+  /\b(purpose|aim|goal|scope|objective|focus|main (topic|idea|theme)|central (topic|theme))s?\s+of\s+(the|this)\s+(chapter|section|lecture|lesson|document|pdf|text|textbook|course|book|material|slides?|presentation|handout)\b/i,
+  /\b(title|heading|name)\s+of\s+(the|this)\s+(chapter|section|lecture|lesson|pdf|book|slide)\b/i,
+  /\bhow many (chapters|sections|pages|slides|topics|lectures)\b/i,
+  /\b(the|this) (pdf|handout|study guide)\b/i,
+  /\b(chapter|section|lecture|document|pdf|text|slides?)\s+(covers?|discuss(es)?|introduces?|focus(es)? on|is about|deals with)\b/i,
+];
+
+/* True for a question about the PDF's structure rather than its content. */
+function isMetaQuestion(text, options = [], chapterNames = []) {
+  const t = String(text || '');
+  if (META_QUESTION_RES.some(re => re.test(t))) return true;
+  // Options that are chapter titles or "Chapter 3"-style labels give it away too.
+  const lower = chapterNames.map(n => n.toLowerCase().trim());
+  const chapterish = options.filter(o => {
+    const s = String(o).toLowerCase().trim();
+    return lower.includes(s) || /^(chapter|section|lecture|lesson|page|slide)\s*\d+\b/.test(s);
+  }).length;
+  return chapterish >= 2;
+}
+
+/* "According to the text, what is X?" → "What is X?" */
+function dropSourcePrefix(text) {
+  const t = String(text).replace(/^(according to|based on|as (stated|described|explained|mentioned|defined|shown) in|in) (the|this) (text|material|study material|chapter|section|pdf|document|slides?|lecture|reading|passage|notes|book|textbook)s?\s*,\s*/i, '');
+  return t === text ? text : t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 async function aiGenerateQuiz(subject, { count = 10, difficulty = 'medium', chapters = null, kind = 'quiz' }) {
   const all = subjectChapters(subject);
   const picked = chapters ? all.filter(c => chapters.includes(c.name)) : all;
@@ -120,23 +161,39 @@ async function aiGenerateQuiz(subject, { count = 10, difficulty = 'medium', chap
   const context = await buildContext(subject, { chapters, budget: S.settings.contextChars });
   if (!context.trim()) throw new Error('This subject has no readable material yet. Upload a PDF first.');
 
+  const first = await requestQuestions(count, { difficulty, names, context });
+  const questions = first.questions;
+  // Questions about the PDF's structure are dropped: ask once more for replacements.
+  if (questions.length < count && first.rejected.length) {
+    try {
+      const more = await requestQuestions(count - questions.length, { difficulty, names, context, avoid: first.rejected, existing: questions.map(q => q.question) });
+      questions.push(...more.questions.slice(0, count - questions.length));
+    } catch (e) { console.warn('Replacement questions failed', e); }
+  }
+  if (!questions.length) throw new Error('The AI did not return usable questions. Try again.');
+  await attachFigures(subject, questions);
+  return { title: String(first.title || `${subject.name} quiz`).slice(0, 90), questions };
+}
+
+async function requestQuestions(count, { difficulty, names, context, avoid = [], existing = [] }) {
   const prompt = `Write ${count} multiple-choice exam questions (difficulty: ${difficulty}) based only on the study material below.
+${CONTENT_ONLY}
 - Spread the questions across these chapters roughly in proportion to how much material each has: ${JSON.stringify(names)}
 - Each question has exactly 4 options and exactly one correct option.
-- Mix question styles: definitions, applying a concept, cause and effect, comparisons, key facts.
-- Wrong options must be plausible. Never ask about page numbers, the document or the author.
+- Mix question styles: definitions, applying a concept, cause and effect, comparisons, key facts, worked problems.
+- Wrong options must be plausible.
 - "chapter" must be copied exactly from the list above.
 - "answer" is the 0-based index of the correct option.
-- SHOW WHAT YOU ASK ABOUT: the student only sees the question, so every question must be answerable from what is shown. When a question is about code, a formula, a table of values or data that would be charted, include that material in "exhibit" (otherwise leave "exhibit" out):
-  {"type": "code", "language": "java", "content": "the complete code, with real line breaks and indentation"}
+- SHOW WHAT YOU ASK ABOUT: the student only sees the question, so every question must be answerable from what is shown. When a question is about code, a formula, a table of values or data that would be charted, put that material in the separate "exhibit" field as a JSON object (otherwise leave "exhibit" out):
+  {"type": "code", "language": "java", "content": "the complete code, with line breaks written as \\n"}
   {"type": "table", "title": "...", "headers": ["...", "..."], "rows": [["...", "..."]]}
   {"type": "chart", "chart": "bar|line|pie", "title": "...", "labels": ["..."], "series": [{"name": "...", "values": [1, 2]}], "xLabel": "...", "yLabel": "..."}
   {"type": "formula", "latex": "LaTeX without delimiters"}
-  Never write "the following code", "the table below" or "the switch statement" without including it. Never put the answer itself in the exhibit. Take code and data from the material when it is there.
+  The exhibit never goes inside the "question" text: "question" is only the sentence the student reads, such as "What does this code print?". Never write "the following code", "the table below" or "the switch statement" without an exhibit. Never put the answer itself in the exhibit. Take code and data from the material when it is there.
 - The material is split into pages marked [p.N]. When a question is about a figure, diagram, chart, picture or screenshot printed in the material (look for words like Figure, Fig., Diagram, Chart, Graph, Listing), set "figurePage" to the page number it is on, so the app can show the student that page. Otherwise leave "figurePage" out.
-
+${avoid.length ? `- These questions were rejected for asking about the document instead of the subject. Do not write anything like them:\n${avoid.map(q => '  - ' + q).join('\n')}\n` : ''}${existing.length ? `- Do not repeat these questions:\n${existing.map(q => '  - ' + q).join('\n')}\n` : ''}
 ${MATH_JSON}
-Return: {"title": "short descriptive quiz title", "questions": [{"question": "...", "exhibit": {...}, "figurePage": 3, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right"}]}
+Return: {"title": "short descriptive quiz title", "questions": [{"question": "What does this code print?", "exhibit": {"type": "code", "language": "java", "content": "int a = 5;\\nSystem.out.print(a + 1);"}, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right"}]}
 
 STUDY MATERIAL:
 ${context}`;
@@ -144,7 +201,9 @@ ${context}`;
   const out = await groqChat([{ role: 'system', content: SYS_TEACHER }, { role: 'user', content: prompt }],
     { temperature: 0.7, maxTokens: Math.min(8000, 500 + count * 380) });
 
+  const rejected = [];
   const questions = (out.questions || []).map(q => {
+    if (!q || typeof q !== 'object') return null;
     const options = (q.options || []).map(String).filter(Boolean).slice(0, 6);
     let ans = Number.isInteger(q.answer) ? q.answer : parseInt(q.answer, 10);
     if (typeof q.answer === 'string' && isNaN(ans)) ans = options.indexOf(q.answer);
@@ -161,14 +220,14 @@ ${context}`;
     };
     const ex = validateExhibit(q.exhibit);
     if (ex) item.exhibit = ex;
+    liftExhibit(item); // the exhibit sometimes lands inside the question text
+    item.question = dropSourcePrefix(item.question);
+    if (isMetaQuestion(item.question, item.options, names)) { rejected.push(item.question); return null; }
     const fp = parseInt(q.figurePage, 10);
     if (fp > 0) item.figurePage = fp;
     return item;
   }).filter(Boolean);
-
-  if (!questions.length) throw new Error('The AI did not return usable questions. Try again.');
-  await attachFigures(subject, questions);
-  return { title: String(out.title || `${subject.name} quiz`).slice(0, 90), questions };
+  return { title: out.title, questions, rejected };
 }
 
 /* Turns "figurePage" into an embedded JPEG of that page's picture (needs the original PDF file). */
@@ -253,6 +312,7 @@ Group B (kind "broad", ${broad} cards): broader questions about other important 
 Rules:
 - Front: one clear question or prompt. Back: a short, complete answer (1-3 sentences or a short list).
 - Use only facts from the study material.
+${CONTENT_ONLY.replace(/question/g, 'card')}
 - "chapter" must be copied exactly from: ${JSON.stringify(names)}
 - Do not repeat these existing cards: ${JSON.stringify(existing)}
 
@@ -265,9 +325,9 @@ ${context}`;
   const out = await groqChat([{ role: 'system', content: SYS_TEACHER }, { role: 'user', content: prompt }],
     { temperature: 0.8, maxTokens: Math.min(8000, 300 + count * 160) });
   const seen = new Set(existing.map(f => f.toLowerCase().trim()));
-  const cards = (out.cards || []).filter(c => c && c.front && c.back).map(c => ({
+  const cards = (out.cards || []).filter(c => c && c.front && c.back && !isMetaQuestion(dropSourcePrefix(String(c.front)))).map(c => ({
     id: uid(), subjectId: subject.id,
-    front: String(c.front), back: String(c.back),
+    front: dropSourcePrefix(String(c.front)), back: String(c.back),
     chapter: matchChapter(c.chapter, names),
     kind: ['targeted', 'broad', 'core'].includes(c.kind) ? c.kind : (missed.length ? 'broad' : 'core'),
     status: 'new', reviews: 0, createdAt: Date.now(),

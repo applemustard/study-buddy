@@ -62,6 +62,7 @@ window.addEventListener('hashchange', render);
 (async function start() {
   try {
     await loadState();
+    try { repairStoredExhibits(); } catch (e) { console.warn('Exhibit repair failed', e); }
   } catch (e) {
     $('#main').innerHTML = `<div class="empty"><h2>Storage is blocked</h2><p>This browser is not allowing Study Buddy to save data (${esc(e.message)}). Try a normal, non-private window.</p></div>`;
     return;

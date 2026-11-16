@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.2",
+    "version":  "1.0.3",
     "launcher":  "1.0.0",
     "date":  "2026-11-16",
-    "notes":  "Quizzes now show the code, charts, tables, formulas and PDF figures they ask about, and have an optional timer. Flashcards can be deleted and regenerated."
+    "notes":  "Code in quiz questions now shows as a proper code block (older quizzes are fixed automatically), and quizzes and flashcards stick to the subject instead of asking about chapters and pages."
 }

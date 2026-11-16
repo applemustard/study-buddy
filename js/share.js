@@ -205,6 +205,7 @@ function validateShare(p) {
     const ex = validateExhibit(x.exhibit), fig = validateFigure(x.figure);
     if (ex) item.exhibit = ex;
     if (fig) item.figure = fig;
+    liftExhibit(item); // quizzes shared from 1.0.2 can have the code inside the question text
     return item;
   };
   const quiz = x => ({ title: str(x.title, 100) || 'Shared quiz', kind: x.kind === 'test' ? 'test' : 'quiz', questions: (x.questions || []).slice(0, 200).map(q).filter(Boolean) });

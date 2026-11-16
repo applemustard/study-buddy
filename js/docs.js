@@ -132,6 +132,19 @@ function subjectChapters(subject) {
   return out;
 }
 
+/* Contents, objectives and reference pages: they make the AI ask about the PDF instead of the subject. */
+function isFrontMatter(page) {
+  const lines = page.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return true;
+  const top = lines.slice(0, 4).join(' ');
+  const leaders = lines.filter(l => /(\.\s?){4,}\s*\d{1,4}$|…{2,}\s*\d{1,4}$/.test(l)).length;
+  const endsInNum = lines.filter(l => /\D\s\d{1,4}$/.test(l)).length;
+  if (leaders >= 4) return true; // dotted "Topic ........ 12" lines
+  if (/^(table of )?contents\b|^index\b/i.test(top) && endsInNum >= 4) return true;
+  if (/^(learning (objectives|outcomes)|references|bibliography|works cited)\b/i.test(top) && page.length < 2500) return true;
+  return false;
+}
+
 /* Picks random, evenly spread excerpts from each chapter so repeated generations see different material. */
 async function buildContext(subject, { chapters = null, budget = 12000 } = {}) {
   const chs = subjectChapters(subject).filter(c => !chapters || chapters.includes(c.name));
@@ -139,7 +152,9 @@ async function buildContext(subject, { chapters = null, budget = 12000 } = {}) {
   for (const c of chs) {
     const pages = await getPages(c.docId);
     // [p.N] markers let the AI point at the page a figure is on.
-    texts.push({ name: c.name, text: pages.slice(c.start - 1, c.end).map((p, k) => `[p.${c.start + k}]\n${p}`).join('\n') });
+    const own = pages.slice(c.start - 1, c.end).map((p, k) => ({ p, n: c.start + k }));
+    const body = own.filter(x => !isFrontMatter(x.p));
+    texts.push({ name: c.name, text: (body.length ? body : own).map(x => `[p.${x.n}]\n${x.p}`).join('\n') });
   }
   const total = texts.reduce((s, t) => s + t.text.length, 0) || 1;
   return texts.filter(t => t.text.trim()).map(t => {

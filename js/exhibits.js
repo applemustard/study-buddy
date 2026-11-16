@@ -6,10 +6,18 @@ const EXHIBIT_TYPES = ['code', 'table', 'chart', 'formula'];
 const IMAGE_SRC_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function validateExhibit(x) {
-  if (!x || typeof x !== 'object' || !EXHIBIT_TYPES.includes(x.type)) return null;
+  // Models sometimes send the exhibit as a JSON string or a ``` fenced block instead of an object.
+  if (typeof x === 'string') x = parseExhibitString(x);
+  if (Array.isArray(x)) x = x[0];
+  if (!x || typeof x !== 'object') return null;
+  if (!EXHIBIT_TYPES.includes(x.type)) {
+    // Missing or odd "type": infer it from the fields.
+    x = { ...x, type: (x.content || x.code) ? 'code' : x.latex ? 'formula' : x.series ? 'chart' : x.rows ? 'table' : '' };
+    if (!x.type) return null;
+  }
   const str = (v, n) => String(v ?? '').slice(0, n);
   if (x.type === 'code') {
-    const content = str(x.content ?? x.code, 8000).replace(/\r/g, '').replace(/^\n+/, '').replace(/\s+$/, '');
+    const content = unescapeCode(str(x.content ?? x.code, 8000)).replace(/\r/g, '').replace(/^\n+/, '').replace(/\s+$/, '');
     return content ? { type: 'code', language: str(x.language, 20).toLowerCase().trim(), content } : null;
   }
   if (x.type === 'formula') {
@@ -30,6 +38,91 @@ function validateExhibit(x) {
   if (!labels.length || !series.length) return null;
   if (chart === 'pie' && (labels.length > 8 || series[0].values.some(v => v < 0))) chart = 'bar';
   return { type: 'chart', chart, title: str(x.title, 120), labels, series: chart === 'pie' ? series.slice(0, 1) : series, xLabel: str(x.xLabel, 40), yLabel: str(x.yLabel, 40) };
+}
+
+/* Code that arrived with "\n" written out (escaped twice) and no real line breaks: turn the escapes
+   outside string literals back into line breaks and tabs, so `System.out.print("a\n")` keeps its "\n". */
+function unescapeCode(s) {
+  if (s.includes('\n') || !/\\[nt]/.test(s)) return s;
+  let out = '', quote = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      out += c;
+      if (c === '\\' && i + 1 < s.length) { out += s[++i]; continue; }
+      if (c === quote) quote = '';
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue; }
+    if (c === '\\' && s[i + 1] === 'n') { out += '\n'; i++; continue; }
+    if (c === '\\' && s[i + 1] === 't') { out += '\t'; i++; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/* Reads an exhibit written as text: a JSON object (possibly escaped once more) or a fenced code block. */
+function parseExhibitString(s) {
+  s = String(s).trim();
+  const fence = s.match(/^```([\w#+.\-]*)[ \t]*\n?([\s\S]*?)```$/);
+  if (fence) return { type: 'code', language: fence[1] || '', content: fence[2] };
+  if (!s.startsWith('{')) return null;
+  const tries = [s, s.replace(/\\"/g, '"').replace(/\\\\/g, '\\')];
+  for (const t of tries) {
+    try { return JSON.parse(t); } catch {}
+    // Real line breaks or tabs inside JSON strings are invalid: escape them and try again.
+    try { return JSON.parse(t.replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t')); } catch {}
+  }
+  return null;
+}
+
+/* Finds the end of a {...} object starting at `start`, skipping braces inside strings. */
+function matchBrace(s, start) {
+  let depth = 0, inStr = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (c === '\\') i++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/* Moves an exhibit the AI wrote into the question text (as JSON or a ``` code block) into q.exhibit.
+   Returns true when it changed the question. */
+function liftExhibit(q) {
+  if (!q || typeof q.question !== 'string') return false;
+  let text = q.question, found = null;
+  const m = text.match(/\{\s*\\?"type\\?"\s*:/);
+  if (m) {
+    const end = matchBrace(text, m.index);
+    const raw = end > -1 ? text.slice(m.index, end + 1) : text.slice(m.index);
+    const ex = validateExhibit(raw);
+    if (ex) { found = ex; text = text.slice(0, m.index) + text.slice(m.index + raw.length); }
+  }
+  if (!found) {
+    const f = text.match(/```([\w#+.\-]*)[ \t]*\n?([\s\S]*?)```/);
+    const ex = f && validateExhibit({ type: 'code', language: f[1], content: f[2] });
+    if (ex) { found = ex; text = text.slice(0, f.index) + text.slice(f.index + f[0].length); }
+  }
+  if (!found) return false;
+  if (!q.exhibit) q.exhibit = found;
+  q.question = text.replace(/\s*(exhibit|code)\s*:\s*$/i, '').replace(/\s+/g, ' ').trim() || 'What is the result of this code?';
+  return true;
+}
+
+/* Repairs saved quizzes made before liftExhibit existed. */
+function repairStoredExhibits() {
+  let changed = false;
+  for (const qz of S.quizzes || []) for (const q of qz.questions || []) {
+    if (liftExhibit(q)) changed = true;
+    else if (q.exhibit && q.exhibit.type === 'code') {
+      const fixed = unescapeCode(q.exhibit.content);
+      if (fixed !== q.exhibit.content) { q.exhibit.content = fixed; changed = true; }
+    }
+  }
+  if (changed) save();
 }
 
 function validateFigure(f) {
