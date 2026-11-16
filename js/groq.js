@@ -130,12 +130,12 @@ const SYS_TEACHER = 'You are a precise, encouraging teacher. You only use facts 
 /* ---------- quizzes ---------- */
 
 /* Keeps the AI on the subject matter instead of how the PDF is organised. Used by quizzes and flashcards. */
-const CONTENT_ONLY = `- TEST THE SUBJECT, NOT THE DOCUMENT. Every question must test knowledge of the subject itself: concepts, definitions, facts, how and why things work, applying a method, solving a problem, reading code or data. Someone who knows the subject well but has never seen this PDF must be able to answer it.
-- Never ask about how the material is organised: which chapter, section, page, slide or lecture something is in; chapter or section titles and headings; the order topics come in; what a chapter "covers", "introduces" or "discusses"; the table of contents, learning objectives, course details, who wrote the PDF, or the PDF itself. The chapter names are only for the "chapter" field.
+const CONTENT_ONLY = `- ONLY WHAT THE COURSE TEACHES. Every question must be about something the study material below actually explains. Do not bring in outside facts, other programming languages, tools, people, history or examples the material does not mention, even closely related ones, and do not ask about topics that are not in the material below (for example from later in the course).
+- Ask about the subject matter, never about the document itself. Never ask about how the material is organised: which chapter, section, page, slide or lecture something is in; chapter or section titles and headings; the order topics come in; what a chapter "covers", "introduces" or "discusses"; the table of contents, learning objectives, course details, who wrote the PDF, or the PDF itself. The chapter names are only for the "chapter" field.
 - Do not start with "According to the text/chapter/PDF/slides". Ask about the idea directly.
 - Ignore front matter (title pages, contents, objectives, references, index) and use the explanatory content.
-  Bad: "Which chapter introduces recursion?", "What is the main topic of Section 2?", "What does the document list first?"
-  Good: "What must every recursive method have to avoid infinite recursion?"`;
+  Bad: "Which chapter introduces recursion?" (about the document), "Which language is an example of strong typing?" when the material never names one (outside knowledge).
+  Good: "What must every recursive method have to avoid infinite recursion?" when the material explains base cases.`;
 
 const META_QUESTION_RES = [
   // Kept narrow on purpose: "what unit is force measured in", "which Python module" and "which heading tag" are real questions.
@@ -179,15 +179,17 @@ async function aiGenerateQuiz(subject, { count = 10, difficulty = 'medium', chap
 
   const past = pastQuestions(subject.id);
   const first = await requestQuestions(count, { difficulty, names, context, past });
-  const questions = await topUp(first, count, { difficulty, names, context, past });
-  if (!questions.length) throw new Error('The AI did not return usable questions. Try again.');
+  const { questions, offCourse } = await topUp(first, count, { difficulty, names, context, past });
+  if (!questions.length) throw new Error(offCourse ? 'The AI only wrote questions that are not in your course material, so they were dropped. Try again, or pick other chapters.' : 'The AI did not return usable questions. Try again.');
   await attachFigures(subject, questions);
-  return { title: String(first.title || `${subject.name} quiz`).slice(0, 90), questions };
+  return { title: String(first.title || `${subject.name} quiz`).slice(0, 90), questions, offCourse };
 }
 
-/* Questions about the PDF's structure, or repeats of earlier quizzes, are dropped: ask once more for replacements. */
+/* Questions about the PDF's structure, off the course, or repeating earlier quizzes are dropped:
+   ask once more for replacements. */
 async function topUp(first, count, opts) {
   const questions = first.questions;
+  let offCourse = first.offCourse || 0;
   if (questions.length < count && (first.rejected.length || first.repeats.length)) {
     try {
       const more = await requestQuestions(count - questions.length, {
@@ -195,10 +197,11 @@ async function topUp(first, count, opts) {
         past: [...(opts.past || []), ...first.repeats].slice(-60),
         existing: questions.map(q => q.question),
       });
+      offCourse += more.offCourse || 0;
       questions.push(...more.questions.slice(0, count - questions.length));
     } catch (e) { console.warn('Replacement questions failed', e); }
   }
-  return questions;
+  return { questions, offCourse };
 }
 
 /* A practice quiz with new questions on the same core ideas as the given ones. */
@@ -209,8 +212,8 @@ async function aiSimilarQuiz(subject, sources, { count = 5, difficulty = 'medium
   if (!context.trim()) throw new Error('This subject has no readable material yet. Upload a PDF first.');
   const opts = { difficulty, names: names.length ? names : all.map(c => c.name), context, past: pastQuestions(subject.id), similarTo: sources };
   const first = await requestQuestions(count, opts);
-  const questions = await topUp(first, count, opts);
-  if (!questions.length) throw new Error('The AI did not return usable questions. Try again.');
+  const { questions } = await topUp(first, count, opts);
+  if (!questions.length) throw new Error('The AI did not return usable questions that are in your course material. Try again.');
   await attachFigures(subject, questions);
   // The AI's title names the idea ("Assignment expressions"); the question text is the fallback.
   const fallback = sources.length === 1 ? sources[0].question.replace(/\\\(|\\\)|\\\[|\\\]/g, '') : `${sources.length} missed questions`;
@@ -218,9 +221,22 @@ async function aiSimilarQuiz(subject, sources, { count = 5, difficulty = 'medium
   return { title: `Practice: ${t.length > 70 ? t.slice(0, 70) + '…' : t}`, questions };
 }
 
-/* Makes questions apply the material's ideas to new cases instead of copying its examples. */
-const GO_BEYOND = `- GO BEYOND THE EXAMPLES. The material's examples show the ideas; the questions check that the student can use those ideas on cases they have not seen. Write about two thirds of the questions as new scenarios: your own code with different variable names, values and structure; new numbers for a formula; a new situation for a concept; a twist on a worked example ("what changes if…", "which line has the bug", "predict the output", "which of these behaves the same"). The rest may check key definitions and facts directly.
-- Never copy an example, code snippet or worked problem from the material word for word, and never reuse its numbers unchanged. Real data sets in the material (tables of results, published charts) may be shown as they are.`;
+/* Theory stays exactly on the course; only exercises (code, maths, problems) get new versions. */
+const TWO_KINDS = `- TWO KINDS OF QUESTIONS. Set "type" on each one:
+  "theory" (definitions, concepts, facts, comparisons, how and why): ask only about what the material states, in its own terms. The correct answer must be stated in the material. Do not invent new situations or examples for theory.
+  "exercise" (tracing or writing code, calculations, maths problems, worked examples, reading data): write NEW versions of the kinds of exercise the material teaches: your own code with different names, values and structure, or new numbers ("predict the output", "which line has the bug", "what changes if…", "solve for…"). Use only the constructs, formulas and methods the material shows. Never copy its examples or numbers unchanged.
+  Write exercises when the material teaches code, maths or problem solving. If it doesn't, write only theory questions.
+- SOURCE: for every question, "source" is a short exact quote (8 to 25 words, copied word for word) from the material that the question is based on, and "page" is the number of the [p.N] marker it is under. For an exercise, quote the part that teaches the rule or technique it practises. A question you cannot back with a quote from the material must not be written.`;
+
+/* Share of a quote's 3-word runs found in the material (1 = word for word). */
+function quoteCoverage(quote, materialNorm) {
+  const w = normQ(quote).split(' ').filter(Boolean);
+  if (w.length < 4) return 0;
+  if (materialNorm.includes(' ' + w.join(' ') + ' ')) return 1;
+  let hit = 0, n = 0;
+  for (let i = 0; i + 3 <= w.length; i++) { n++; if (materialNorm.includes(' ' + w.slice(i, i + 3).join(' ') + ' ')) hit++; }
+  return n ? hit / n : 0;
+}
 
 /* Earlier quiz questions for a subject, newest first, so a new quiz doesn't repeat them. */
 function pastQuestions(subjectId, limit = 40) {
@@ -244,13 +260,13 @@ function pastLine(q) {
 
 async function requestQuestions(count, { difficulty, names, context, avoid = [], existing = [], past = [], similarTo = [] }) {
   const task = similarTo.length
-    ? `Write ${count} new multiple-choice practice questions (difficulty: ${difficulty}) that test the same core ideas as the questions below, in new ways. For each one, work out the idea it really tests, then test that idea again with new code, values or a new scenario, or from a different angle (predict the output, find the bug, what happens if one thing changes, compare it with a similar case). Spread the new questions evenly over these ideas. Never repeat an original question, its code or its numbers:
+    ? `Write ${count} new multiple-choice practice questions (difficulty: ${difficulty}) on the same core ideas as the questions below. For each one, work out the idea it really tests. If it is an exercise (code, a calculation, a problem), write new versions of that exercise with new code or numbers, or from a different angle (predict the output, find the bug, what happens if one thing changes). If it is theory, ask about other things the material says about the same topic, never about facts the material does not state. Spread the new questions evenly over these ideas. Never repeat an original question, its code or its numbers:
 ${similarTo.map(q => `  - ${pastLine(q)} (correct answer: ${q.options[q.answer]})`).join('\n')}
 Use the study material below for the facts.`
     : `Write ${count} multiple-choice exam questions (difficulty: ${difficulty}) based only on the study material below.`;
   const prompt = `${task}
 ${CONTENT_ONLY}
-${GO_BEYOND}
+${TWO_KINDS}
 - Spread the questions across these chapters roughly in proportion to how much material each has: ${JSON.stringify(names)}
 - Each question has exactly 4 options and exactly one correct option.
 - Mix question styles: definitions, applying a concept, cause and effect, comparisons, key facts, worked problems.
@@ -265,18 +281,21 @@ ${GO_BEYOND}
   {"type": "formula", "latex": "LaTeX without delimiters"}
   The exhibit never goes inside the "question" text: "question" is only the sentence the student reads, such as "What does this code print?". Never write "the following code", "the table below" or "the switch statement" without an exhibit. Never put the answer itself in the exhibit.
 - The material is split into pages marked [p.N]. When a question is about a figure, diagram, chart, picture or screenshot printed in the material (look for words like Figure, Fig., Diagram, Chart, Graph, Listing), set "figurePage" to the page number it is on, so the app can show the student that page. Otherwise leave "figurePage" out.
-${avoid.length ? `- These questions were rejected for asking about the document instead of the subject. Do not write anything like them:\n${avoid.map(q => '  - ' + q).join('\n')}\n` : ''}${existing.length ? `- Do not repeat these questions:\n${existing.map(q => '  - ' + q).join('\n')}\n` : ''}${past.length ? `- Earlier quizzes on this subject already asked the questions below. Do not reuse any of them, their code or their numbers. An idea may come back only as a clearly different question (new code, values or scenario):\n${past.map(q => '  - ' + pastLine(q)).join('\n')}\n` : ''}
+${avoid.length ? `- These questions were rejected, for asking about the document itself or about things the material does not say. Do not write anything like them:\n${avoid.map(q => '  - ' + q).join('\n')}\n` : ''}${existing.length ? `- Do not repeat these questions:\n${existing.map(q => '  - ' + q).join('\n')}\n` : ''}${past.length ? `- Earlier quizzes on this subject already asked the questions below. Do not reuse any of them, their code or their numbers. An idea may come back only as a clearly different question (new code, values or scenario):\n${past.map(q => '  - ' + pastLine(q)).join('\n')}\n` : ''}
 ${MATH_JSON}
-Return: {"title": "short descriptive quiz title", "questions": [{"question": "the sentence the student reads", "exhibit": {"type": "code", "language": "...", "content": "first line\\nsecond line"}, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right"}]}
+Return: {"title": "short descriptive quiz title", "questions": [{"type": "theory|exercise", "question": "the sentence the student reads", "exhibit": {"type": "code", "language": "...", "content": "first line\\nsecond line"}, "options": ["...","...","...","..."], "answer": 0, "chapter": "...", "explanation": "1-2 sentences on why the answer is right, using the material's explanation", "source": "exact words copied from the material", "page": 3}]}
 (The exhibit above only shows the format. Leave "exhibit" out of questions that don't need one.)
 
 STUDY MATERIAL:
 ${context}`;
 
   const out = await groqChat([{ role: 'system', content: SYS_TEACHER }, { role: 'user', content: prompt }],
-    { temperature: 0.7, maxTokens: Math.min(8000, 500 + count * 380) });
+    { temperature: 0.6, maxTokens: Math.min(8000, 500 + count * 430) });
 
   const rejected = [], repeats = [];
+  let offCourse = 0;
+  const materialNorm = ' ' + normQ(context) + ' ';
+  const pages = new Set([...context.matchAll(/\[p\.(\d+)\]/g)].map(m => +m[1]));
   const pastKeys = new Set([...past, ...similarTo].map(questionKey));
   const questions = (out.questions || []).map(q => {
     if (!q || typeof q !== 'object') return null;
@@ -301,13 +320,19 @@ ${context}`;
     liftExhibit(item); // the exhibit sometimes lands inside the question text
     item.question = dropSourcePrefix(item.question);
     if (isMetaQuestion(item.question, item.options, names)) { rejected.push(item.question); return null; }
+    // Off the course: the quote it is based on has to be in the material that was sent.
+    const quote = String(q.source || '').trim().slice(0, 400);
+    if (quoteCoverage(quote, materialNorm) < 0.5) { rejected.push(item.question); offCourse++; return null; }
+    const page = parseInt(q.page, 10);
+    item.source = { quote, ...(pages.has(page) ? { page } : {}) };
+    item.qtype = q.type === 'exercise' ? 'exercise' : 'theory';
     if (pastKeys.has(questionKey(item))) { repeats.push(item); return null; }
     pastKeys.add(questionKey(item));
     const fp = parseInt(q.figurePage, 10);
     if (fp > 0) item.figurePage = fp;
     return item;
   }).filter(Boolean);
-  return { title: out.title, questions, rejected, repeats };
+  return { title: out.title, questions, rejected, repeats, offCourse };
 }
 
 /* Turns "figurePage" into an embedded JPEG of that page's picture (needs the original PDF file). */

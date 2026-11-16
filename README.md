@@ -37,7 +37,8 @@ An internet connection is needed (pdf.js, KaTeX, fonts and the Groq API load fro
   - Questions show the material they ask about: code with line numbers and highlighting, tables, bar/line/pie charts and formulas.
   - Answers that are code show as highlighted code, laid out one statement per line, and `code` inside normal text is shown in code font.
   - Figures from the PDF are cropped from their page and embedded as pictures. You can also add your own picture to any question (upload, paste a screenshot, or crop a PDF page).
-  - Questions apply the PDF's ideas to new code, numbers and situations instead of copying its examples, and a new quiz doesn't repeat questions from earlier quizzes on the same subject.
+  - Questions stay on your course: theory questions only ask about what the PDF says, and the AI must quote the passage each question is based on. Questions whose quote isn't in the PDF are dropped. The results page shows that quote under each missed question.
+  - Code and maths exercises get new versions (new code, new numbers) using only what the course teaches, instead of copying the PDF's examples. A new quiz doesn't repeat questions from earlier quizzes on the same subject.
   - **More like this** on a missed question (or **Practice what I missed**) makes a practice quiz that tests the same idea in new ways.
   - Optional timer: pick it on the start screen. It warns you at 1 minute and submits by itself when time runs out. Results show the time taken.
 - **Flashcards**:

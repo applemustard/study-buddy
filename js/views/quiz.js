@@ -237,6 +237,7 @@ function renderResult(qid, aid) {
           <div class="ans wrong">Your answer: ${a.answers[i] == null ? '<i>skipped</i>' : optionHTML(qq, qq.options[a.answers[i]])}</div>
           <div class="ans right">Correct: ${optionHTML(qq, qq.options[qq.answer])}</div>
           ${qq.explanation ? `<p class="muted">${inlineCode(qq.explanation)}</p>` : ''}
+          ${qq.source && qq.source.quote ? `<blockquote class="course-quote"><span class="small">From your course${qq.source.page ? `, page ${qq.source.page}` : ''}</span>“${esc(qq.source.quote)}”</blockquote>` : ''}
           <button class="btn small" data-act="moreLike" data-q="${q.id}" data-i="${i}">More like this</button>
         </li>`).join('')}
       </ol>

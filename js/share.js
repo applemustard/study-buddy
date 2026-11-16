@@ -42,7 +42,7 @@ async function decodeShare(text) {
 /* ---------- building payloads ---------- */
 
 const cleanQuestion = q => ({ question: q.question, options: q.options, answer: q.answer, chapter: q.chapter, explanation: q.explanation,
-  ...(q.exhibit ? { exhibit: q.exhibit } : {}), ...(q.optionLang ? { optionLang: q.optionLang } : {}), ...(q.figure ? { figure: { src: q.figure.src, caption: q.figure.caption, page: q.figure.page } } : {}) });
+  ...(q.exhibit ? { exhibit: q.exhibit } : {}), ...(q.optionLang ? { optionLang: q.optionLang } : {}), ...(q.source ? { source: q.source } : {}), ...(q.figure ? { figure: { src: q.figure.src, caption: q.figure.caption, page: q.figure.page } } : {}) });
 const cleanCard = c => ({ front: c.front, back: c.back, chapter: c.chapter, kind: c.kind });
 const cleanNote = n => ({ title: n.title, style: n.style, markdown: n.markdown });
 
@@ -206,6 +206,7 @@ function validateShare(p) {
     if (ex) item.exhibit = ex;
     if (fig) item.figure = fig;
     if (x.optionLang) item.optionLang = str(x.optionLang, 20).replace(/[^\w#+.\-]/g, '');
+    if (x.source && x.source.quote) item.source = { quote: str(x.source.quote, 400), ...(Number.isInteger(x.source.page) ? { page: x.source.page } : {}) };
     liftExhibit(item); // quizzes shared from 1.0.2 can have the code inside the question text
     return item;
   };

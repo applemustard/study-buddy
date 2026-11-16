@@ -698,3 +698,7 @@ label.link { display: inline; font-weight: 700; }
 .usage-row { padding: 10px 0; border-bottom: 1px solid var(--rule); }
 .usage-row:last-child { border-bottom: 0; }
 .usage-row p { margin: 4px 0 0; }
+
+/* The course text a question is based on, under its explanation on the results page. */
+.course-quote { margin: 6px 0 8px; padding: 8px 12px; border-left: 3px solid var(--blue); background: var(--sunk); border-radius: 0 6px 6px 0; color: var(--ink-2); font-style: italic; }
+.course-quote span { display: block; font-style: normal; font-weight: 700; color: var(--ink-3); margin-bottom: 2px; }
